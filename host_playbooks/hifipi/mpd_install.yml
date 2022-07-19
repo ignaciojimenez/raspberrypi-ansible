@@ -1,0 +1,38 @@
+---
+- name: Install mpd and modify configs
+  hosts: all
+  vars:
+    mpd_conf: "/etc/mpd.conf"
+  tasks:
+    # check if needed
+    - name: Install mpd
+      become: true
+      ansible.builtin.apt:
+        pkg:
+        - mpd
+    
+    - name: Allowing any host to connect
+      become: true
+      replace:
+          dest: "{{ mpd_conf }}"
+          regexp: '^bind_to_address'
+          replace: '#bind_to_address'
+
+    - name: Enabling mdns announcement of the device
+      become: true
+      ansible.builtin.copy:
+        dest: "{{ mpd_conf }}"
+        content: |
+          zeroconf_enabled "yes"
+          zeroconf_name "hifipi-mpd"
+
+    - name: reset ssh connection
+      meta: reset_connection
+
+    - name: Change default alsa volume level
+      shell: "{{ item }}"
+      become: true
+      with_items:
+        - amixer sset 'PCM',0 100%
+        - alsactl store
+      ignore_errors: yes

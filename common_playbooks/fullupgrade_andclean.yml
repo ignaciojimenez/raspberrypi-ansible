@@ -1,0 +1,17 @@
+---
+- name: Full upgrade and clean playbook
+  hosts: all
+  become: true
+  tasks:
+    - name: Update apt repo and cache on all raspbian boxes
+      ansible.builtin.apt:
+        upgrade: full
+    - name: Update apt repo and cache on all raspbian boxes
+      ansible.builtin.apt:
+        autoremove: yes
+    - name: Update apt repo and cache on all raspbian boxes
+      ansible.builtin.apt:
+        autoclean: yes
+    - name: Update apt repo and cache on all raspbian boxes
+      ansible.builtin.apt:
+        clean: yes

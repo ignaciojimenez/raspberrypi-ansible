@@ -1,0 +1,37 @@
+---
+- name: Install needed packages, add keyring and sources and install from apt
+  hosts: all
+  tasks:
+    # check if needed
+    - name: Install packages
+      become: true
+      ansible.builtin.apt:
+        pkg:
+        - apt-transport-https
+    - name: Add an Apt signing key to a specific keyring file
+      become: true
+      ansible.builtin.apt_key:
+        url: https://dtcooper.github.io/raspotify/key.asc
+        keyring: /etc/apt/trusted.gpg.d/raspotify_key.gpg
+    - name: Add source repository into sources list
+      become: true
+      ansible.builtin.apt_repository:
+        repo: deb [signed-by=/etc/apt/trusted.gpg.d/raspotify_key.gpg] https://dtcooper.github.io/raspotify raspotify main
+        state: present
+    - name: Update apt repo and cache
+      become: true
+      ansible.builtin.apt: update_cache=yes force_apt_get=yes cache_valid_time=3600
+    - name: Install raspotify
+      become: true
+      ansible.builtin.apt:
+        pkg:
+        - raspotify
+    - name: Creating custom raspotify configs
+      become: true
+      ansible.builtin.copy:
+        dest: "/etc/default/raspotify"
+        content: |
+          #### Custom Configs for {{ ansible_user_id }} ####
+          BITRATE="320"
+          VOLUME_ARGS="--initial-volume=100"
+        

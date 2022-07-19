@@ -1,0 +1,36 @@
+---
+- name: Install needed packages, clone and build shairport
+  hosts: all
+  tasks:
+    - name: Install packages
+      become: true
+      ansible.builtin.apt:
+        pkg:
+        - autoconf 
+        - automake 
+        - avahi-daemon 
+        - build-essential 
+        - libasound2-dev 
+        - libavahi-client-dev 
+        - libconfig-dev 
+        - libdaemon-dev 
+        - libpopt-dev 
+        - libssl-dev 
+        - libtool 
+        - xmltoman 
+        - alsa-utils 
+        - libsoxr-dev
+    - name: Clone a repo with separate git directory
+      ansible.builtin.git:
+        repo: https://github.com/mikebrady/shairport-sync.git
+        dest: "/home/{{ ansible_user_id }}/shairport-sync"
+    - name: Build shairport
+      shell: "{{ item }}"
+      become: true
+      args:
+        chdir: "/home/{{ ansible_user_id }}/shairport-sync"
+      with_items:
+        - autoreconf -i -f
+        - ./configure --with-alsa --with-avahi --with-ssl=openssl --with-systemd --with-metadata --with-soxr
+        - make
+        - make install

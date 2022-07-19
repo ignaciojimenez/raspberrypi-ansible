@@ -1,0 +1,14 @@
+---
+# locale config
+locale: "en_US.UTF-8"
+
+# authorized key file
+gh_keyfile: https://github.com/foobaar.keys
+
+#git configs
+git_name: "Foo bar"
+git_mail: foo@bar.com
+
+#slack tokens - TODO migrate to ansible vault
+alert_token: "xoxb-xxxxxxxxx-xxxxxxxxxx-xxxxxxxxxxxx"
+logging_token: "xoxb-xxxxxxxxx-xxxxxxxxxx-xxxxxxxxxxxx"

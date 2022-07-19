@@ -1,0 +1,10 @@
+---
+
+- name: Install shairport
+  ansible.builtin.import_playbook: "{{host}}/shairport_install.yml"
+
+- name: Install raspotify
+  ansible.builtin.import_playbook: "{{host}}/raspotify_install.yml"
+
+- name: Install mpd
+  ansible.builtin.import_playbook: "{{host}}/mpd_install.yml"

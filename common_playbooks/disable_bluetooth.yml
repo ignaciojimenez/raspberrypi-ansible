@@ -1,0 +1,14 @@
+---
+- name: Disable bluetooth playbook
+  hosts: all
+  become: true
+  tasks:
+    - name: Disable Bluetooth related services
+      systemd:
+        name: "{{ item }}"
+        enabled: false
+      with_items:
+          - hciuart.service
+          - bluetooth.service
+          - bluealsa.service
+      ignore_errors: yes

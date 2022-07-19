@@ -1,0 +1,17 @@
+---
+- name: Create script folder and move scripts playbook
+  hosts: all
+  vars:
+    home_dir: "/home/{{ ansible_user_id }}"
+    scripts_dir: "{{ home_dir }}/.scripts"
+  tasks:
+    - name: Creates script dir
+      file:
+        path: "{{ scripts_dir }}"
+        state: directory
+    # Copying common files
+    - name: Copy content of common to scripts files
+      ansible.builtin.copy:
+        src: ../common_scripts/
+        dest: "{{ scripts_dir }}/"
+        mode: preserve

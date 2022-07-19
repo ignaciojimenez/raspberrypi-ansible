@@ -1,0 +1,142 @@
+---
+- name: Allow user to run as root
+  hosts: all
+  become: true
+  tasks:
+  - name: Creating a sudoer file
+    community.general.sudoers:
+      name: "{{ ansible_user_id }}_nopwd"
+      state: present
+      user: "{{ ansible_user_id }}"
+      commands: ALL
+
+- name: Import update and upgrade playbook
+  ansible.builtin.import_playbook: common_playbooks/update_upgrade.yml
+
+- name: Configure locale
+  hosts: all
+  become: true
+  vars_files:
+    - config_vars.yaml
+  tasks:
+  - name: Ensure the locale exists
+    locale_gen:
+      name: "{{ locale }}"
+      state: present
+
+- name: Import bluetooth disabling playbook
+  ansible.builtin.import_playbook: common_playbooks/disable_bluetooth.yml
+
+- name: Set a hostname
+  hosts: all
+  become: true
+  tasks:
+    - name: Set a hostname
+      ansible.builtin.hostname:
+        name: "{{ host }}"
+
+- name: Harden users and ssh
+  hosts: all
+  vars_files:
+    - config_vars.yaml
+  tasks:
+    - name: disable root user
+      become: true
+      ansible.builtin.user:
+        name: root
+        state: present
+        password_lock: true
+        shell: "/sbin/nologin"
+    - name: disable root login
+      become: yes
+      lineinfile:
+          dest: /etc/ssh/sshd_config
+          regexp: '^PermitRootLogin'
+          line: "PermitRootLogin no"
+          state: present
+          backup: true
+    - name: Change user password to random value
+      become: true
+      user:
+        name: "{{ ansible_user_id }}"
+        password: "{{ lookup('password', 'user_pwd.txt length=63') | password_hash('sha512') }}"
+    - name: Set authorized key took from url
+      authorized_key:
+        user: "{{ ansible_user_id }}"
+        state: present
+        key: "{{ gh_keyfile }}"
+
+- name: Import script creation playbook
+  ansible.builtin.import_playbook: common_playbooks/create_and_move_scripts.yml
+
+- name: Cron management play
+  hosts: all
+  vars:
+    home_dir: "/home/{{ ansible_user_id }}"
+    scripts_dir: "{{ home_dir }}/.scripts"
+    logs_dir: "{{ home_dir }}/.log"
+  vars_files:
+    - config_vars.yaml
+  tasks:
+  # Creating log dir
+  - name: Creates log dir
+    file:
+      path: "{{ logs_dir }}"
+      state: directory
+  # Creating cronjobs
+  - name: Cronjob for daily updates
+    ansible.builtin.cron:
+      name: "daily_updates"
+      minute: "30"
+      hour: "5"
+      weekday: "1,2,3,4"
+      job: "/bin/bash {{ scripts_dir }}/update >> {{ logs_dir }}/update.log 2>&1"
+  - name: Cronjob for daily updates
+    vars:
+      dir: "/"
+      threshold: "60"
+    ansible.builtin.cron:
+      name: "volume quota"
+      special_time: "hourly"
+      job: "/bin/bash {{ scripts_dir }}/testvolumequota {{ alert_token }} {{ dir }} {{ threshold }} >> {{ logs_dir }}/quota_root.log 2>&1"
+
+- name: Installing generic needed packages
+  hosts: all
+  become: true
+  tasks:
+    - name: Install packages
+      ansible.builtin.apt:
+        pkg:
+        - git
+        - dnsutils
+        - jq
+        - fail2ban
+
+- name: Modifying git global config
+  hosts: all
+  vars_files:
+    - config_vars.yaml
+  tasks:
+    - name: setup git name
+      git_config:
+        name: user.name
+        scope: global
+        value:  "{{ git_name }}"
+    - name: setup git user email
+      git_config:
+        name: user.email
+        scope: global
+        value: "{{ git_mail }}"
+
+- name: Import device specific playbook
+  ansible.builtin.import_playbook: "host_playbooks/{{ host }}.yml"
+
+- name: Import full upgrade and clean playbook
+  ansible.builtin.import_playbook: common_playbooks/fullupgrade_andclean.yml
+
+- name: Reboot server when finished
+  hosts: all
+  become: true
+  tasks:
+    - name: Unconditionally reboot the machine with all defaults
+      ansible.builtin.reboot:

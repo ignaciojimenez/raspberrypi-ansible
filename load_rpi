@@ -1,0 +1,244 @@
+#!/bin/bash
+#
+# Script flashes the sd card with an image containing the last raspbian netinstall version or a compressed img from an url
+
+set -e          # stop on errors
+set -u          # stop on unset variables
+set -o pipefail # stop on pipe failures
+
+usage(){
+   echo "Usage: $(basename "$0") image_source hostname"
+   echo "Parameters:"
+   echo " image_source   Where to install the image from. Options: { netinstall | downloadurl | raspbian }"
+   echo " hostname       Type of raspberry. Options: { pihole|cobra|hifipi|dockassist|devpi|vinylstreamer|pizero }"
+   echo
+}
+
+E_NOARGS=85
+if [ $# -ne 2 ]; then
+  usage
+  exit "$E_NOARGS"
+fi
+
+url_regex='(https?|ftp|file)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]'
+if [[ "$1" = "raspbian" ]] || [[ "$1" = "netinstall" ]] || [[ $1 =~ $url_regex ]]; then
+  img_src="$1"
+else
+  usage
+  exit 1
+fi
+
+if [[ "$2" = "pihole" ]] || [[ "$2" = "cobra" ]] || [[ "$2" = "hifipi" ]] || [[ "$2" = "dockassist" ]] || [[ "$2" = "devpi" ]] || [[ "$2" = "vinylstreamer" ]] || [[ "$2" = "pizero" ]]; then
+  host="$2"
+else
+  usage
+  exit 1
+fi
+
+# Helpers
+get_wifi_pass(){
+  # here we gather the password that will be used later to configure liquidsoap (could be)
+  echo -n "Please enter wifi [${wifi_ssid}] password:" >&2
+  read -r -s password
+  echo "$password"
+}
+
+add_wifi(){
+  # creating the wpa config
+  echo "-------------------------------------------------------"
+  echo "Creating wifi config"
+  {
+    echo 'ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev'
+    echo 'country=NL'
+    echo 'update_config=1'
+
+    echo 'network={'
+    echo "   ssid=\"$2\""
+    echo "   psk=\"$(get_wifi_pass)\""
+    echo '}'
+  }  >> "${1}"/wpa_supplicant.conf
+  echo
+}
+
+# Disk writing functions
+# TODO Unlikely but do it xD
+get_what_disk() {
+  local disks="$1"
+  echo "${disks}"
+}
+
+get_latest_release_url() {
+  # expected parameters $1:account $2:project $3:filter
+  url=$(curl -s https://api.github.com/repos/"${1}"/"${2}"/releases/latest |
+    grep browser_download_url |
+    grep "${3}" |
+    cut -d '"' -f 4)
+  echo "${url}"
+}
+
+disk_selection() {
+  echo "WARNING: This will erase your disk completely and overwrite it" >&2
+  echo "Please review the device information carefully to avoid losing data" >&2
+  echo "-------------------------------------------------------" >&2
+  echo "Starting disk erasure process" >&2
+  echo "-------------------------------------------------------" >&2
+  # first we find out about existing external disks
+  disks=$(diskutil list | grep external | cut -d" " -f1)
+  number_of_disks=$(diskutil list | grep external | cut -d" " -f1 | wc -l)
+  if [[ $number_of_disks -eq 1 ]]; then
+    disk="$disks"
+  elif [[ $number_of_disks -eq 0 ]]; then
+    echo "No external devices found" >&2
+    exit 1
+  elif [[ $number_of_disks -gt 1 ]]; then
+    echo "Multiple external drives found. Script currently doesn't support it" >&2
+    # disk=$(get_what_disk "${disks}")
+    exit 1
+  else
+    echo "Diskutil output unexpected. Command run: diskutil list | grep external | cut -d" " -f1 | wc -l" >&2
+    exit 1
+  fi
+
+  echo "Disk: ${disk} will be formated" >&2
+  diskutil info "${disk}" >&2
+
+  echo "Review the information listed above" >&2
+  echo -n "Are you sure you want to proceed and remove ALL DATA in ${disk} (y/n)? " >&2
+  read -r answer
+  if [ "$answer" == "${answer#[Yy]}" ]; then
+    echo "Program exited" >&2
+    exit 1
+  fi
+  echo "${disk}"
+}
+
+download_image(){
+  echo "-------------------------------------------------------" >&2
+  echo "Downloading image" >&2
+  echo "-------------------------------------------------------" >&2
+  account="FooDeas"
+  project="raspberrypi-ua-netinst"
+  image_filter="img.bz2"
+  if [[ $1 = "netinstall" ]]; then
+    echo "Getting last netinstall release: get_download_url ${account} ${project} ${image_filter}" >&2
+    download_url=$(get_latest_release_url ${account} ${project} ${image_filter})
+  elif [[ "$1" = "raspbian" ]]; then
+    url="https://www.raspberrypi.com/software/operating-systems/"
+    echo "Getting last raspbian image from ${url}" >&2
+    download_url=$(curl -s ${url} | perl -nle'print $& while m{(?<=href=")[^"]*}g' | grep arm64 | grep lite | grep xz | grep -v torrent)
+  else
+    download_url=$1
+  fi
+  # TODO check if file exists and remove it if it does
+  curl -s -L -O -J "${download_url}"
+  echo "Downloaded url: ${download_url}" >&2
+  compressed_file=${download_url##*/}
+  extension=${compressed_file##*.}
+
+  if [ "$extension" = "bz2" ]; then
+    echo "Unzipping file: bunzip2 ${compressed_file}" >&2
+    bunzip2 "${compressed_file}"
+  elif [ "$extension" = "xz" ]; then
+    echo "Unzipping file: gunzip ${compressed_file}" >&2
+    gunzip "${compressed_file}"
+  else
+    echo "Unzipping file: unzip -o ${compressed_file} '*.img' " >&2
+    unzip -o "${compressed_file}" "*.img"
+    rm "${compressed_file}"
+  fi
+
+  file_substring=$(echo "${compressed_file}" | cut -d . -f 1)
+  echo "${file_substring}"
+}
+
+move_image() {
+  echo "-------------------------------------------------------" >&2
+  echo "Starting Disk flashing procedure" >&2
+  echo "-------------------------------------------------------" >&2
+  disk=${1}
+  file=${2}
+  echo "Unmounting device: diskutil unmountDisk ${disk}" >&2
+  diskutil unmountDisk "${disk}"
+  img_file=$(find . \( -name '*.img' -and -name "${file}*" \) -maxdepth 1)
+  echo "Flashing device: sudo dd bs=1m if=${img_file} of=/dev/r${1##*/}" >&2
+  sudo dd bs=1m if="${img_file}" of=/dev/r"${1##*/}"
+  echo "Removing temp downloaded files: rm ${file}*" >&2
+  rm "${file}"*
+}
+
+#specific configs for different pis
+common(){
+  echo "-------------------------------------------------------" >&2
+  echo "Enabling ssh" >&2
+  touch "$1"/ssh
+
+  echo "-------------------------------------------------------" >&2
+  echo "Creating first time creds" >&2
+  username="choco"
+  encpwd=$(echo 'chocotemp' | openssl passwd -crypt -stdin)
+  echo "${username}:${encpwd}" > "$1"/userconf.txt
+
+  echo "-------------------------------------------------------" >&2
+  echo "Pushing config.txt changes" >&2
+  # reducing gpu mem to min as we wont be using video at all
+  echo "gpu_mem=16" >> "$1"/config.txt
+  # disabling bluetooth
+  echo 'dt_overlay="disable-bt"' >> "$1"/config.txt
+  # disabling audio
+  sudo sed -i ".bak" "s/.*dtparam=audio=on.*/#dtparam=audio=on/g" "$1"/config.txt
+  # disable screen parameters that wont be used
+  sudo sed -i ".bak" "s/.*dtoverlay=vc4-kms-v3d.*/#dtoverlay=vc4-kms-v3d/g" "$1"/config.txt
+  sudo sed -i ".bak" "s/.*max_framebuffers.*/#max_framebuffers=2/g" "$1"/config.txt
+  sudo sed -i ".bak" "s/.*disable_overscan.*/#disable_overscan=1/g" "$1"/config.txt
+}
+
+cobra(){
+  echo 'dt_overlay="disable-wifi"' >> "$1"/config.txt
+}
+
+dockassist(){
+  echo 'dt_overlay="disable-wifi"' >> "$1"/config.txt
+}
+
+pihole(){
+  echo 'dt_overlay="disable-wifi"' >> "$1"/config.txt
+}
+
+devpi(){
+  echo 'dt_overlay="disable-wifi"' >> "$1"/config.txt
+}
+
+pizero(){
+  add_wifi "$1" "$2"
+}
+
+hifipi(){
+  echo 'dt_overlay="hifiberry-dacplus"' >> "$1"/config.txt
+  echo 'dt_overlay="disable-wifi"' >> "$1"/config.txt
+}
+
+vinylstreamer(){
+  add_wifi "$1" "$2"
+}
+
+# main
+disk=$(disk_selection)
+image=$(download_image "${img_src}")
+move_image "${disk}" "${image}"
+
+# sleeping to allow the volume to be mounted
+sleep 2
+
+# setting useful vars
+volume_name="boot"
+volume_path="/Volumes/${volume_name}"
+wifi_ssid="estonoesmazagon"
+
+# executing common configs
+common ${volume_path}
+
+# executing specific host scripts
+"$host" ${volume_path} ${wifi_ssid}
+
+echo "-------------------------------------------------------"
+echo "Process finished succesfully"
