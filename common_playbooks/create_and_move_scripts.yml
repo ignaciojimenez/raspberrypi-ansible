@@ -1,9 +1,6 @@
 ---
 - name: Create script folder and move scripts playbook
   hosts: all
-  vars:
-    home_dir: "/home/{{ ansible_user_id }}"
-    scripts_dir: "{{ home_dir }}/.scripts"
   tasks:
     - name: Creates script dir
       file:
