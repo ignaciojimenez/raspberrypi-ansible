@@ -12,3 +12,4 @@
         src: ../common_scripts/
         dest: "{{ scripts_dir }}/"
         mode: preserve
+        backup: yes
