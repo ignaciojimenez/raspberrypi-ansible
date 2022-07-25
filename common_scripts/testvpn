@@ -29,9 +29,9 @@ fi
 wh=$1
 ip=$2
 
-ping_output=$(/bin/ping -c 1 "$ip" > /dev/null && echo "ok" || echo "failed")
+# ping_output=$(/bin/ping -c 1 "$ip" > /dev/null && echo "ok" || echo "failed")
 # for router include vpn interface
-# ping_output=$(/bin/ping -c -I wg0 1 "$ip" > /dev/null && echo "ok" || echo "failed")
+ping_output=$(/bin/ping -c 1 -I wg0 "$ip" > /dev/null && echo "ok" || echo "failed")
 
 webmonitor_hook="https://hooks.slack.com/services/$wh"
 notokfile=vpn_down
