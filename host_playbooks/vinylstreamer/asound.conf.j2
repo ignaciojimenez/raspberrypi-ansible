@@ -1,0 +1,21 @@
+liq.dsnooped {
+    type dsnoop
+    ipc_key 5978293
+    ipc_key_add_uid yes
+    slave {
+        # Unnecessary as we are forcing index 0
+        # pcm "hw:{{ card }},{{ device }}"
+        pcm "hw:0,0"
+        channels 2
+    }
+}
+
+pcm.!default
+{
+    type asym
+    capture.pcm
+    {
+        type plug
+        slave.pcm "liq.dsnooped"
+    }
+}

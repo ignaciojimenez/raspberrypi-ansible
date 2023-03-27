@@ -1,0 +1,13 @@
+[Unit]
+Description=Detect audio service - python
+After=sound.target
+
+[Service]
+User={{ ansible_user_id }}
+ExecStartPre=/bin/sleep 5
+ExecStart={{ d_audio_path }}/detect_audio.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+Alias=detect_audio.service

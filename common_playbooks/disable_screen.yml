@@ -1,0 +1,16 @@
+---
+- name: Disable screen at boot
+  hosts: all
+  tasks:
+    - name: Copy tvoff to init.d
+      become: true
+      ansible.builtin.copy:
+        src: ../common_files/tvoff
+        dest: "/etc/init.d/"
+        mode: "0755"
+        backup: true
+    - name: Enable tvoff service
+      ansible.builtin.sysvinit:
+        name: tvoff
+        enabled: true
+        runlevels: default

@@ -9,30 +9,33 @@
       become: true
       ansible.builtin.apt:
         pkg:
-        - mpd
-    
+          - mpd
     - name: Allowing any host to connect
       become: true
-      replace:
-          dest: "{{ mpd_conf }}"
-          regexp: '^bind_to_address'
-          replace: '#bind_to_address'
+      ansible.builtin.replace:
+        dest: "{{ mpd_conf }}"
+        regexp: '^bind_to_address'
+        replace: '#bind_to_address'
 
     - name: Enabling mdns announcement of the device
       become: true
       ansible.builtin.copy:
         dest: "{{ mpd_conf }}"
+        mode: preserve
         content: |
           zeroconf_enabled "yes"
           zeroconf_name "hifipi-mpd"
 
-    - name: reset ssh connection
-      meta: reset_connection
+    - name: Reset ssh connection
+      ansible.builtin.meta: reset_connection
 
-    - name: Change default alsa volume level
-      shell: "{{ item }}"
+    - name: Take volume to max
       become: true
-      with_items:
-        - amixer sset 'PCM',0 100%
-        - alsactl store
-      ignore_errors: yes
+      ignore_errors: true
+      block:
+        - name: Take volume to max
+          ansible.builtin.command: amixer sset 'PCM',0 100%
+          changed_when: false
+        - name: Alsactl store mixer config
+          ansible.builtin.command: alsactl store
+          changed_when: false

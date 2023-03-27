@@ -1,0 +1,23 @@
+---
+- name: Enable daily auto upgrades
+  hosts: all
+  vars:
+    apt_config_dir: "/etc/apt/apt.conf.d"
+  become: true
+  tasks:
+    - name: Install unattended-upgrades
+      ansible.builtin.apt:
+        pkg:
+          - unattended-upgrades
+    - name: Copy auto upgrade file
+      ansible.builtin.copy:
+        src: ../common_files/20auto-upgrades
+        dest: "{{ apt_config_dir }}"
+        mode: "0644"
+        backup: true
+    - name: Copy unattended upgrade file
+      ansible.builtin.copy:
+        src: ../common_files/50unattended-upgrades
+        dest: "{{ apt_config_dir }}"
+        mode: "0644"
+        backup: true

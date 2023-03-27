@@ -1,0 +1,123 @@
+---
+- name: Defining global vars
+  hosts: all
+  tasks:
+    - name: Setting global facts
+      ansible.builtin.set_fact:
+        liqs_name: "phono"
+        str_name: "Turntable_stream"
+
+- name: Disable screen on boot
+  ansible.builtin.import_playbook: ../common_playbooks/disable_screen.yml
+
+- name: Remove audio deprioritization
+  hosts: all
+  become: true
+  tasks:
+    - name: Set index value for snd-usb-audio
+      become: true
+      ansible.builtin.lineinfile:
+        path: /lib/modprobe.d/aliases.conf
+        regexp: '^options snd-usb-audio index=.*$'
+        line: 'options snd-usb-audio index=0'
+        backup: true
+    - name: Restart systemd-modules-load.service
+      ansible.builtin.systemd:
+        name: systemd-modules-load.service
+        state: restarted
+
+- name: Install alsa-utils and add user to audio group
+  hosts: all
+  become: true
+  tasks:
+    - name: Install alsa-utils package
+      ansible.builtin.apt:
+        name: alsa-utils
+        state: present
+
+    - name: Add user to audio group
+      ansible.builtin.user:
+        name: "{{ ansible_user_id }}"
+        groups: audio
+        append: true
+
+- name: Generate appropriate asound.conf reading values from host
+  hosts: all
+  become: true
+  tasks:
+    # usefull info about dsnooping
+    # https://bugzilla.redhat.com/show_bug.cgi?id=130593#c19
+    # https://wiki.archlinux.org/index.php/Advanced_Linux_Sound_Architecture/Troubleshooting#Setting_the_default_microphone.2Fcapture_device
+    # https://bbs.archlinux.org/viewtopic.php?id=159492
+    # arecord -L should show dsnoop device
+    - name: Get card and device values
+      shell: >
+        arecord -l | grep -oP "(?<=card )\d+(?=:.*)" | head -1;
+        arecord -l | grep -oP "(?<=device )\d+" | head -1
+      register: arecord_output
+    - name: Set facts for card and device values
+      set_fact:
+        card: "{{ arecord_output.stdout_lines[0] }}"
+        device: "{{ arecord_output.stdout_lines[1] }}"
+    - name: Generate asound.conf file
+      become: yes
+      ansible.builtin.template:
+        src: "{{host}}/asound.conf.j2"
+        dest: "/etc/asound.conf"
+        mode: '0644'
+    - name: Reload ALSA modules
+      ansible.builtin.systemd:
+        name: alsa-restore.service
+        state: restarted
+
+- name: Install icecast
+  ansible.builtin.import_playbook: "{{host}}/install_icecast.yml"
+
+- name: Install liquidsoap
+  ansible.builtin.import_playbook: "{{host}}/install_liquidsoap.yml"
+  vars:
+    ls_name: "{{ liqs_name }}"
+    stream_name: "{{ str_name }}"
+    ice_passwd: "{{ ic_password }}"
+
+- name: Install mpc and add stream to playlist
+  hosts: all
+  vars:
+    hifipi_ip: "10.30.40.100"
+    def_icecast_port: "8000"
+
+  # basic mpc guidance
+  # mpc --host=${hifipi_ip} volume 100
+  # mpc --host=${hifipi_ip} clear
+  # mpc --host=${hifipi_ip} add http://10.30.80.101:8000/phono.ogg
+  # mpc --host=${hifipi_ip} playlist  --> returns $icecast_name
+  # mpc --host=${hifipi_ip} play
+  # mpc --host=${hifipi_ip} stop
+  tasks:
+    - name: Install mpc
+      become: true
+      ansible.builtin.apt:
+        name: mpc
+        state: present
+
+    - name: Clear previous playlists
+      ansible.builtin.command: mpc --host="{{ hifipi_ip }}" clear
+
+    - name: Set fact for IP address
+      ansible.builtin.set_fact:
+        my_ip: "{{ ansible_default_ipv4.address }}"
+
+    - name: Add the stream to the playlist
+      ansible.builtin.command: mpc --host="{{ hifipi_ip }}" add http://"{{ my_ip }}":"{{ def_icecast_port }}"/"{{ liqs_name }}".ogg
+
+    - name: Check if the playlist was added
+      ansible.builtin.command: mpc --host="{{ hifipi_ip }}" playlist
+      register: remote_stream_name
+
+    - name: Display warning if the playlist was not added properly
+      when: str_name != remote_stream_name.stdout_lines[0]
+      ansible.builtin.debug:
+        msg: "WARNING: Remote stream was not properly configured"
+
+- name: Detect audio script deployment
+  ansible.builtin.import_playbook: "{{host}}/deploy_detectaudio.yml"

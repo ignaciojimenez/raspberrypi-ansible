@@ -1,5 +1,4 @@
 ---
-
 - name: Install shairport
   ansible.builtin.import_playbook: "{{host}}/shairport_install.yml"
 

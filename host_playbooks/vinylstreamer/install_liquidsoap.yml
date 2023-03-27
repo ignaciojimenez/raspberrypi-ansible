@@ -1,0 +1,74 @@
+---
+- name: Install liquidsoap and configure
+  hosts: all
+  vars:
+    ls_folder: "liquidsoap"
+
+  tasks:
+    - name: Install Liquidsoap via apt
+      become: true
+      ansible.builtin.apt:
+        name: liquidsoap
+        update_cache: true
+        state: present
+        allow_unauthenticated: true
+
+    - name: Create log file for liquidsoap
+      vars:
+        ls_log_folder: "/var/log/{{ ls_folder }}"
+      block:
+        - name: Create liquidosap log file fact to be reused
+          ansible.builtin.set_fact:
+            ls_log_file: "{{ ls_log_folder }}/{{ ls_name }}.log"
+        - name: Ensures log_folder for liquidsoap exists
+          become: true
+          ansible.builtin.file:
+            path: "{{ ls_log_folder }}"
+            mode: '0777'
+            # TODO check if this helps with anything
+            # mode: '0666'
+        - name: Creates the liquidsoap log file
+          become: true
+          ansible.builtin.file:
+            path: "{{ ls_log_file }}"
+            state: touch
+            mode: '0777'
+            # TODO check if this helps with anything
+            # mode: '0666'
+
+    - name: Create liquidsoap script file
+      vars:
+        ls_folder_path: "/home/{{ ansible_user_id }}/{{ ls_folder }}"
+      block:
+        - name: Set facts for liquidsoap script file
+          ansible.builtin.set_fact:
+            ls_script_path: "{{ ls_folder_path }}/{{ ls_name }}.liq"
+        - name: Create the liquidsoap dir if it does not exist
+          ansible.builtin.file:
+            path: "{{ ls_folder_path }}"
+            state: directory
+            mode: '0755'
+        - name: Create liquidsoap script based on a template
+          ansible.builtin.template:
+            src: "ls_script.j2"
+            dest: "{{ ls_script_path }}"
+            mode: a+x
+
+    - name: Install liquidsoap unit file
+      become: true
+      ansible.builtin.template:
+        src: "ls_unitfile.j2"
+        dest: "/lib/systemd/system/{{ ls_name }}_liquidsoap.service"
+        mode: "0644"
+
+    - name: Reload systemd
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Enable liquidsoap service
+      become: true
+      ansible.builtin.systemd:
+        name: "{{ ls_name }}_liquidsoap.service"
+        enabled: true
+        state: started

@@ -1,0 +1,71 @@
+- name: Install detect_audio.py service
+  hosts: all
+  vars:
+    d_audio_path: "/home/{{ ansible_user_id }}/detectaudio"
+
+  tasks:
+    - name: Create detectaudio directory
+      ansible.builtin.file:
+        path: "{{ d_audio_path }}/"
+        state: directory
+        mode: '0755'
+
+    - name: Copy detect_audio.py script
+      ansible.builtin.copy:
+        src: detect_audio.py
+        dest: "{{ d_audio_path }}/"
+        mode: a+x
+
+    - name: Copy requirements.txt file
+      ansible.builtin.copy:
+        src: requirements.txt
+        dest: "{{ d_audio_path }}/"
+        mode: '0644'
+
+    - name: Install python3 pip
+      become: true
+      ansible.builtin.apt:
+        name: python3-pip
+        state: present
+
+    - name: Install portaudio library as required to build pyaudio
+      become: true
+      ansible.builtin.apt:
+        name: portaudio19-dev
+        state: present
+
+    - name: Install virtualenv via pip
+      ansible.builtin.pip:
+        name: virtualenv
+        executable: pip
+
+    - name: Force PIP upgrade
+      ansible.builtin.pip:
+        name: pip
+        state: latest
+
+    - name: Create virtual environment
+      ansible.builtin.pip:
+        requirements: "{{ d_audio_path }}/requirements.txt"
+        virtualenv: "{{ d_audio_path }}/venv"
+        virtualenv_python: python3
+        virtualenv_command: /home/{{ ansible_user_id }}/.local/bin/virtualenv
+
+    - name: Add shebang to detect_audio.py
+      ansible.builtin.lineinfile:
+        path: "{{ d_audio_path }}/detect_audio.py"
+        line: "#!{{ d_audio_path }}/venv/bin/python3 -u"
+        insertbefore: BOF
+        backup: true
+
+    - name: Create systemd service
+      become: true
+      ansible.builtin.template:
+        src: "detectaudio_unit.j2"
+        dest: "/etc/systemd/system/detect_audio.service"
+        mode: '0644'
+
+    - name: Reload systemd manager configuration
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true

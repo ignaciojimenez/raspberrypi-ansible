@@ -1,0 +1,15 @@
+[Unit]
+Description={{ ls_name }}.liq Liquidsoap daemon
+After=sound.target
+
+[Service]
+Type=forking
+User={{ ansible_user_id }}
+ExecStartPre=/bin/sleep 5
+PIDFile=/tmp/{{ ls_name }}.liq.pid
+ExecStart=/usr/bin/liquidsoap {{ ls_script_path }}
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+Alias={{ ls_name }}_liquidsoap.service

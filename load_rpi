@@ -116,10 +116,11 @@ download_image(){
   echo "-------------------------------------------------------" >&2
   echo "Downloading image" >&2
   echo "-------------------------------------------------------" >&2
-  account="FooDeas"
-  project="raspberrypi-ua-netinst"
-  image_filter="img.bz2"
+  # TODO download to temp and check hashed to avoid having to re-download?
   if [[ $1 = "netinstall" ]]; then
+    account="FooDeas"
+    project="raspberrypi-ua-netinst"
+    image_filter="img.bz2"
     echo "Getting last netinstall release: get_download_url ${account} ${project} ${image_filter}" >&2
     download_url=$(get_latest_release_url ${account} ${project} ${image_filter})
   elif [[ "$1" = "raspbian" ]]; then
@@ -147,8 +148,7 @@ download_image(){
     rm "${compressed_file}"
   fi
 
-  file_substring=$(echo "${compressed_file}" | cut -d . -f 1)
-  echo "${file_substring}"
+  echo "${compressed_file%.*}"
 }
 
 move_image() {
@@ -159,7 +159,9 @@ move_image() {
   file=${2}
   echo "Unmounting device: diskutil unmountDisk ${disk}" >&2
   diskutil unmountDisk "${disk}"
-  img_file=$(find . \( -name '*.img' -and -name "${file}*" \) -maxdepth 1)
+  # keeping as a failover for the future
+  # img_file=$(find . \( -name '*.img' -and -name "${file}*" \) -maxdepth 1)
+  img_file=${file}
   echo "Flashing device: sudo dd bs=1m if=${img_file} of=/dev/r${1##*/}" >&2
   sudo dd bs=1m if="${img_file}" of=/dev/r"${1##*/}"
   echo "Removing temp downloaded files: rm ${file}*" >&2
@@ -224,13 +226,21 @@ vinylstreamer(){
 # main
 disk=$(disk_selection)
 image=$(download_image "${img_src}")
-move_image "${disk}" "${image}"
+
+if test -f "${image}" && test -b "${disk}"; then
+  move_image "${disk}" "${image}"
+else
+  echo "Exiting, image or disk incorrect"
+  echo "Disk: ${disk}"
+  echo "Image: ${image}"
+  exit 1
+fi
 
 # sleeping to allow the volume to be mounted
 sleep 2
 
 # setting useful vars
-volume_name="boot"
+volume_name="bootfs"
 volume_path="/Volumes/${volume_name}"
 wifi_ssid="estonoesmazagon"
 

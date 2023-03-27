@@ -3,8 +3,9 @@
   hosts: all
   tasks:
     - name: Creates script dir
-      file:
+      ansible.builtin.file:
         path: "{{ scripts_dir }}"
+        mode: "0700"
         state: directory
     # Copying common files
     - name: Copy content of common to scripts files
@@ -12,4 +13,4 @@
         src: ../common_scripts/
         dest: "{{ scripts_dir }}/"
         mode: preserve
-        backup: yes
+        backup: true

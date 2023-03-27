@@ -1,0 +1,39 @@
+---
+- name: Install icecast2 and configure password
+  hosts: all
+  tasks:
+    - name: Install icecast2 via apt
+      become: true
+      ansible.builtin.apt:
+        name: icecast2
+        state: present
+
+    - name: Change icecast password
+      vars:
+        ic_conf: "/etc/icecast2/icecast.xml"
+        pwd_alias: "{{ lookup('password', '/dev/null length=25 chars=ascii_letters') }}"
+      block:
+        - name: Create new icecast password and set fact
+          ansible.builtin.set_fact:
+            ic_password: "{{ pwd_alias }}"
+        - name: Replace source-password in icecast config
+          become: true
+          ansible.builtin.lineinfile:
+            dest: "{{ ic_conf }}"
+            regexp: '^(\s*)<source-password>.*</source-password>'
+            line: '\1<source-password>{{ ic_password }}</source-password>'
+            backrefs: true
+            state: present
+            backup: true
+
+    - name: Reload all daemons after modifying icecast
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Enable icecast2 service
+      become: true
+      ansible.builtin.systemd:
+        name: "icecast2.service"
+        enabled: true
+        state: started

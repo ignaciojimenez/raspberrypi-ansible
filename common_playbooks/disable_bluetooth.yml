@@ -4,11 +4,10 @@
   become: true
   tasks:
     - name: Disable Bluetooth related services
-      systemd:
+      ansible.builtin.systemd:
         name: "{{ item }}"
         enabled: false
       with_items:
-          - hciuart.service
-          - bluetooth.service
-          - bluealsa.service
-      ignore_errors: yes
+        - hciuart.service
+        - bluetooth.service
+      ignore_errors: true

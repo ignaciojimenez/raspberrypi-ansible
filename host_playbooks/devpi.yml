@@ -1,0 +1,7 @@
+---
+- name: Devpi host playbook
+  hosts: all
+  tasks:
+    - name: Print message
+      ansible.builtin.debug:
+        msg: "Host:{{ ansible_host }} - does not require a specific playbook"

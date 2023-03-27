@@ -1,0 +1,22 @@
+#!/usr/bin/liquidsoap
+set("init.daemon", true)
+set("init.daemon.change_user", true)
+set("init.daemon.change_user.group", "{{ ansible_user_id }}")
+set("init.daemon.change_user.user", "{{ ansible_user_id }}")
+set("init.daemon.pidfile", true)
+set("init.daemon.pidfile.path", "/tmp/{{ ls_name }}.liq.pid")
+set("log.file.path", "{{ ls_log_file }}")
+set("frame.audio.samplerate", 48000)
+input_stream = input.alsa(bufferize = true, fallible = true)
+output.icecast(%ogg(%flac(samplerate = 48000,
+                        channels = 2,
+                        compression = 5,
+                        bits_per_sample = 16)),
+                mount = "{{ ls_name }}.ogg",
+                name = "{{ stream_name }}",
+                format = "audio/ogg",
+                description = "Turntable FLAC stream",
+                genre = "Sepsi",
+                password = "{{ ice_passwd }}",
+                input_stream,
+                fallible = true)

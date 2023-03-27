@@ -11,7 +11,7 @@
       commands: ALL
 
 - name: Import update and upgrade playbook
-  ansible.builtin.import_playbook: common_playbooks/update_upgrade.yml
+  ansible.builtin.import_playbook: common_playbooks/update_upgrade_clean.yml
 
 - name: Configure locale
   hosts: all
@@ -20,7 +20,7 @@
     - config_vars.yaml
   tasks:
   - name: Ensure the locale exists
-    locale_gen:
+    community.general.locale_gen:
       name: "{{ locale }}"
       state: present
 
@@ -48,8 +48,8 @@
         password_lock: true
         shell: "/sbin/nologin"
     - name: disable root login
-      become: yes
-      lineinfile:
+      become: true
+      ansible.builtin.lineinfile:
           dest: /etc/ssh/sshd_config
           regexp: '^PermitRootLogin'
           line: "PermitRootLogin no"
@@ -57,15 +57,16 @@
           backup: true
     - name: Change user password to random value
       become: true
-      user:
+      ansible.builtin.user:
         name: "{{ ansible_user_id }}"
         password: "{{ lookup('password', 'user_pwd.txt length=63') | password_hash('sha512') }}"
     - name: Set authorized key took from url
-      authorized_key:
+      ansible.posix.authorized_key:
         user: "{{ ansible_user_id }}"
         state: present
         key: "{{ gh_keyfile }}"
 
+# scripts_dir has not been set and are used in the original playbook, will this work?? how? don't think so
 - name: Import script creation playbook
   ansible.builtin.import_playbook: common_playbooks/create_and_move_scripts.yml
 
@@ -80,18 +81,11 @@
   tasks:
   # Creating log dir
   - name: Creates log dir
-    file:
+    ansible.builtin.file:
       path: "{{ logs_dir }}"
       state: directory
   # Creating cronjobs
-  - name: Cronjob for daily updates
-    ansible.builtin.cron:
-      name: "daily_updates"
-      minute: "30"
-      hour: "5"
-      weekday: "1,2,3,4"
-      job: "/bin/bash {{ scripts_dir }}/update >> {{ logs_dir }}/update.log 2>&1"
-  - name: Cronjob for daily updates
+  - name: Cronjob for hourly volume quota checks
     vars:
       dir: "/"
       threshold: "60"
@@ -118,21 +112,24 @@
     - config_vars.yaml
   tasks:
     - name: setup git name
-      git_config:
+      community.general.git_config:
         name: user.name
         scope: global
         value:  "{{ git_name }}"
     - name: setup git user email
-      git_config:
+      community.general.git_config:
         name: user.email
         scope: global
         value: "{{ git_mail }}"
 
 - name: Import device specific playbook
   ansible.builtin.import_playbook: "host_playbooks/{{ host }}.yml"
+  # TODO: unclear if this var is necessary
+  vars:
+    host: "{{ host }}"
 
 - name: Import full upgrade and clean playbook
-  ansible.builtin.import_playbook: common_playbooks/fullupgrade_andclean.yml
+  ansible.builtin.import_playbook: common_playbooks/update_upgrade_clean.yml
 
 - name: Reboot server when finished
   hosts: all
