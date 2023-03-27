@@ -61,14 +61,10 @@
         dest: "/lib/systemd/system/{{ ls_name }}_liquidsoap.service"
         mode: "0644"
 
-    - name: Reload systemd
+    - name: Reload systemd and Enable liquidsoap service
       become: true
       ansible.builtin.systemd:
         daemon_reload: true
-
-    - name: Enable liquidsoap service
-      become: true
-      ansible.builtin.systemd:
         name: "{{ ls_name }}_liquidsoap.service"
         enabled: true
         state: started
