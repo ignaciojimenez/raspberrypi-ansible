@@ -117,6 +117,9 @@
         scope: global
         value: "{{ git_mail }}"
 
+- name: Import public gpg key from playbook
+  ansible.builtin.import_playbook: common_playbooks/import_gpg_github.yml
+
 - name: Import device specific playbook
   ansible.builtin.import_playbook: "host_playbooks/{{ host }}.yml"
   # TODO: unclear if this var is necessary
