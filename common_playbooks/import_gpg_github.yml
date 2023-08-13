@@ -1,0 +1,42 @@
+---
+- name: Import GPG key from GitHub
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Import key from GitHub
+      ansible.builtin.shell: |
+        set -o pipefail
+        _=$(gpg --list-keys) # Required to initialize gpg databases doing in subshell to omit output
+        curl -s {{ gh_pgp }} | gpg --import 2>&1 | grep key | cut -d ' ' -f3 | sed "s/.$//"
+      args:
+        executable: /bin/bash
+      register: imported_key_short
+      changed_when: imported_key_short.stdout_lines | length > 0
+      failed_when: imported_key_short.stdout_lines | length == 0
+
+    - name: Getting all the long keys from keyring - required to change trust level
+      ansible.builtin.shell: |
+        set -o pipefail
+        gpg --with-colons --fingerprint | awk -F: '$1 == "fpr" {print $10;}'
+      args:
+        executable: /bin/bash
+      changed_when: false
+      register: imported_keys_long
+      failed_when: imported_keys_long.stdout_lines | length == 0
+
+    - name: Search for specific text in array to get the key
+      ansible.builtin.set_fact:
+        matched_key: "{{ item }}"
+      when: item is search(imported_key_short.stdout_lines | first)
+      with_items: "{{ imported_keys_long.stdout_lines }}"
+      loop_control:
+        loop_var: item
+
+    - name: Establish ultimate trust for the imported public key
+      ansible.builtin.shell: |
+        gpg --import-ownertrust <<< "{{ matched_key }}:6:"
+      args:
+        executable: /bin/bash
+      when: matched_key | length > 0
+      register: my_output
+      changed_when: my_output.rc != 0
