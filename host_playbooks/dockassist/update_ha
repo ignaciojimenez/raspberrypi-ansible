@@ -1,0 +1,25 @@
+#!/bin/bash
+# 
+# Script to update home-assistant
+
+set -e          # stop on errors
+set -u          # stop on unset variables
+set -o pipefail # stop on pipe failures
+
+echo "[$(date)] home assistant update started"
+ha_name="home-assistant"
+echo "[$(date)] Running user is:$(whoami)"
+USER="choco"
+docker pull ghcr.io/home-assistant/home-assistant:stable
+docker stop "${ha_name}"
+docker rm "${ha_name}"
+docker run -d \
+  --name "${ha_name}" \
+  --restart=unless-stopped \
+  --privileged \
+  -e TZ=MY_TIME_ZONE \
+  -v "/home/${USER}/homeassistant:/config"  \
+  --network=host \
+  ghcr.io/home-assistant/home-assistant:stable
+# to check next time this fails -- see if mounted volume is actually mounted
+# docker inspect -f '{{ .Mounts }}' home-assistant

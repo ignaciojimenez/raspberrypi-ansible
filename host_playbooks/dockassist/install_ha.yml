@@ -1,0 +1,53 @@
+---
+- name: HomeAssistant and HACS installation
+  hosts: all
+  vars:
+    container_name: "home-assistant"
+  tasks:
+    - name: HA installation
+      block:
+        - name: Installing HA required dependencies
+          become: true
+          ansible.builtin.apt:
+            update_cache: true
+            pkg:
+              - apparmor-utils
+              - avahi-daemon
+              - dbus
+              - jq
+              - network-manager
+              - socat
+        - name: Disable ModemManager for HA
+          become: true
+          ansible.builtin.service:
+            name: ModemManager
+            enabled: false
+            state: stopped
+        - name: Download and run Home Assistant container
+          community.docker.docker_container:
+            name: "{{ container_name }}"
+            image: ghcr.io/home-assistant/home-assistant:stable
+            restart_policy: unless-stopped
+            # evaluate why it requires to be privileged
+            privileged: true
+            volumes:
+              - "/home/{{ ansible_user_id }}/homeassistant:/config"
+            network_mode: host
+
+    - name: HACS installation
+      vars:
+        ha_root: "/config"
+        hacs_install_file: "{{ ha_root }}/install_hacs.sh"
+      block:
+        - name: Download HACS in the container
+          community.docker.docker_container_exec:
+            container: "{{ container_name }}"
+            command: "curl -fsSL https://get.hacs.xyz -o {{ hacs_install_file }}"
+        - name: Execute downloaded file
+          community.docker.docker_container_exec:
+            container: "{{ container_name }}"
+            command: "/bin/bash {{ hacs_install_file }}"
+        - name: Remove tmp install file
+          community.docker.docker_container_exec:
+            container: "{{ container_name }}"
+            command: "/bin/rm {{ hacs_install_file }}"

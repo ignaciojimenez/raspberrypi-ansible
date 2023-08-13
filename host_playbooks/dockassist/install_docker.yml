@@ -1,0 +1,87 @@
+---
+- name: Docker installation
+  hosts: all
+  vars:
+    docker_key_url: "https://download.docker.com/linux/raspbian/gpg"
+    docker_key_file: "/usr/share/keyrings/docker.asc"
+    # arm64 requires using debian binaries
+    docker_distro_url: "https://download.docker.com/linux/debian"
+    docker_group: "docker"
+  tasks:
+    - name: Install packages required for docker
+      become: true
+      ansible.builtin.apt:
+        update_cache: true
+        pkg:
+          - ca-certificates
+          - curl
+          - gnupg
+
+    - name: Download Docker GPG Key
+      become: true
+      ansible.builtin.get_url:
+        url: "{{ docker_key_url }}"
+        dest: "{{ docker_key_file }}"
+        force: true
+        mode: '0644'
+
+    - name: Retrieve architecture
+      ansible.builtin.command: dpkg --print-architecture
+      register: architecture_result
+
+    - name: Add Docker repository
+      become: true
+      ansible.builtin.apt_repository:
+        repo: "deb [arch={{ architecture_result.stdout }} signed-by={{ docker_key_file }}] {{ docker_distro_url }} {{ ansible_distribution_release }} stable"
+        filename: "docker"
+        state: present
+        update_cache: true
+
+    - name: Install Docker packages
+      become: true
+      ignore_errors: true
+      ansible.builtin.apt:
+        install_recommends: true
+        force_apt_get: true
+        update_cache: true
+        # it looks like docker service enabling doesnt work so we ignore the error and later restart
+        pkg:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+
+    - name: Create docker groups
+      become: true
+      ansible.builtin.group:
+        name: "{{ docker_group }}"
+        state: present
+
+    - name: Add User to Docker Group
+      become: true
+      ansible.builtin.user:
+        name: "{{ ansible_user_id }}"
+        groups: "{{ docker_group }}"
+        append: true
+
+    - name: Reset ssh connection to allow user changes to affect 'current login user'
+      ansible.builtin.meta: reset_connection
+
+    - name: Pausing to restart the service and expect everything to work
+      ansible.builtin.pause:
+        prompt: "Pausing before trying to restart docker"
+        seconds: 3
+
+    - name: Restart docker
+      become: true
+      ansible.builtin.service:
+        name: docker
+        state: restarted
+
+    # - name: Reload Shell
+    #  ansible.builtin.shell: |
+    #    sudo -iu {{ ansible_user_id }}
+    #    docker info
+    #  args:
+    #    executable: /bin/bash

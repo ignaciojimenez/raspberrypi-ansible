@@ -1,0 +1,60 @@
+---
+- name: Disable screen on boot
+  ansible.builtin.import_playbook: ../common_playbooks/disable_screen.yml
+
+- name: Install Docker
+  ansible.builtin.import_playbook: "{{host}}/install_docker.yml"
+
+- name: Install HomeAssistant
+  ansible.builtin.import_playbook: "{{host}}/install_ha.yml"
+
+- name: update_ha install cron
+  hosts: all
+  tasks:
+    - name: Move update_ha script to ~/.scripts
+      copy:
+        src: "{{host}}/update_ha"
+        dest: ~/.scripts/
+        mode: '0755'
+
+    - name: Add update_ha to crontab
+      cron:
+        name: "Run update_ha script"
+        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper {{ logging_token }} /home/{{ ansible_user_id }}/.scripts/update_ha >> /home/{{ ansible_user_id }}/.log/update_ha 2>&1"
+        minute: '0'
+        hour: '3'
+        day: '10'
+        user: "{{ ansible_user_id }}"
+        state: present
+
+- name: Other generic cronjobs
+  hosts: all
+  tasks:
+    # Script is already present as it is a common_script
+    - name: Add testrunningcontainer to crontab
+      cron:
+        name: "Check for running container and restart if needed"
+        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/testrunningcontainer {{ alert_token }} home-assistant >> /home/{{ ansible_user_id }}/.log/testrunningcontainer 2>&1"
+        minute: '*/10'
+        user: "{{ ansible_user_id }}"
+        state: present
+
+    # Scripts is already present as it is a common_script
+    - name: Add backup_last_mod to crontab
+      cron:
+        name: "Do config backup nightly"
+        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper {{ logging_token }} \"/home/{{ ansible_user_id }}/.scripts/backup_last_mod {{ alert_token }} transfer.sh /home/{{ ansible_user_id }}/homeassistant/backups/ {{ git_mail }}\" >> /home/{{ ansible_user_id }}/.log/backup_last_mod 2>&1"
+        minute: '0'
+        hour: '4'
+        user: "{{ ansible_user_id }}"
+        state: present
+
+    - name: Prune containers periodically
+      cron:
+        name: "Prune all docker elements to clean space"
+        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper \"{{ logging_token }}\" \"/usr/bin/docker system prune -f\" >> /home/{{ ansible_user_id }}/.log/docker_prune.log 2>&1"
+        minute: '0'
+        hour: '0'
+        day: '1'
+        user: "{{ ansible_user_id }}"
+        state: present
