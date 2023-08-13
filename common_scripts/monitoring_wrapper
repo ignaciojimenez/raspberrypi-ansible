@@ -27,7 +27,12 @@ webmonitor_hook="https://hooks.slack.com/services/$wh"
 script_path=$2
 script_args="${*:3}"
 date_started=$(date +"%F_%T.%3N")
-execution_result=$($script_path "$script_args")
+if [ -z "$script_args" ]; then
+      execution_result=$($script_path)
+else
+      # leaving script_arts unqotted as otherwise can be parsed as single string in some systems
+      execution_result=$($script_path $script_args)
+fi
 date_finished=$(date +"%F_%T.%3N")
 
 content_start="{\"text\":\""
