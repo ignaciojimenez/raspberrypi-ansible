@@ -1,49 +1,54 @@
 # raspberrypi-ansible
 ## Description
-This is a collection of scripts to kickstart raspberry pi's using a minimal raspbian installation and deploy configurations using ansible playbooks
+This is a collection of scripts to flash an sd card from a MacOS laptop, and kickstart raspberry pi's using minimal raspbian installations and deploy configurations using ansible playbooks
 
 ## Usage
 This repo has multiple tools. Use at suited.
-### Pre-bootup
-- `load_rpi`:   MacOS tool to load a base image to an SD card
+### Pre-bootup - bash script
+`load_rpi`:   MacOS tool to load a base image to an SD card
 ```
 Usage: load_rpi image_source hostname
 Parameters:
  image_source   Where to install the image from. Options: { netinstall | downloadurl | raspbian }
  hostname       Type of raspberry. Options: { pihole|cobra|hifipi|dockassist|devpi|vinylstreamer|pizero }
 ```
-> Currently used `load_rpi raspbian [host]`
+> Currently commonly used `load_rpi raspbian [host]`
 
-### Post-bootup
-- `ansible-playbook installation.yml --limit=[host] -k --extra-vars "host=[host]"`: Ansible playbook to install a host. Note -k is only needed for the first run to add interactive initial password.
-Requires:
+### Post-bootup - ansible
+#### Requisites
 - `python3 -m pip install --user ansible` - more info in [red hat docs](https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html). Useful to have:
     - `python3 -m pip install --user argcomplete`
 - `ansible-galaxy collection install community.crypto`
 - `ansible-galaxy collection install ansible.posix`
 - passlib - `pip install passlib`
-- sshpass -- Deprecated, not needed anymore
+> Common problems arise with different python versions and ansible being available to specific versions
 
-# Flavours so far
-## devpi
+#### Usage
+- `ansible-playbook installation.yml --limit=[host] -k --extra-vars "host=[host]"`: Ansible playbook to install a host. Note -k is only needed for the first run to add interactive initial password.
+
+#### Flavours so far
+##### devpi
 Barebones install for testing
 
-## hifipi
-This raspberry pi will use a [Hifiberry](https://www.hifiberry.com/) hat to play high quality audio received via Airplay using [shairport](https://github.com/mikebrady/shairport-sync) or Spotify connect via [raspotify](https://github.com/dtcooper/raspotify). It also runs [mpd](https://www.musicpd.org) and is used to play streams controlled by remote clients such as `vinylstreamer`
-### TODO
+##### hifipi
+Streaming box thar uses a [hifiberry](https://www.hifiberry.com/) hat to play high quality audio received via Airplay using [shairport](https://github.com/mikebrady/shairport-sync) or Spotify connect via [raspotify](https://github.com/dtcooper/raspotify). It also runs [mpd](https://www.musicpd.org) and is used to play streams controlled by remote clients such as `vinylstreamer`
+###### TODO
 - [ ] Find out how to monitor and restart raspotify/airplay receivers if not working
 
-## Vinylstreamer
-This raspberry pi will run an [icecast](https://icecast.org) server that exposes an internet-radio stream, fed by a [liquidsoap](https://www.liquidsoap.info) defined audiostream using ogg/flac. It will also run a python script `detect_audio.py` that will detect an input audio stream and remotely control an mpd daemon to play the icecast stream
-### TODO
+##### Vinylstreamer
+[Icecast](https://icecast.org) server that exposes an internet-radio stream, fed by a [liquidsoap](https://www.liquidsoap.info) defined audiostream using ogg/flac. It will also run a python script `detect_audio.py` that will detect an input audio stream and remotely control an mpd daemon to play the icecast stream
+###### TODO
 - [ ] Define on installation the remote ip to control mpd in `detect_audio.py`
 
-## Cobra
+##### Dockassist
+Raspberry which will run homeassistant inside a dockercontainer
+
+###### TODO - Usage notes
+- [ ] Migrating from a previous installation is still manual. Procedure should be copying `/home/${USER}/homeassistant/` from the original host and then copy it to the same location and starting homeassistant to pick it up.
+
+##### Cobra
 TBD
 
-## Pihole
-TBD
-
-## Dockassist
+##### Pihole
 TBD
 
