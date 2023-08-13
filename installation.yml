@@ -10,14 +10,18 @@
       user: "{{ ansible_user_id }}"
       commands: ALL
 
+- name: Include variable files
+  hosts: all
+  tasks:
+  - name: Include variable files
+    ansible.builtin.include_vars: config_vars.yaml
+
 - name: Import update and upgrade playbook
   ansible.builtin.import_playbook: common_playbooks/update_upgrade_clean.yml
 
 - name: Configure locale
   hosts: all
   become: true
-  vars_files:
-    - config_vars.yaml
   tasks:
   - name: Ensure the locale exists
     community.general.locale_gen:
@@ -37,8 +41,6 @@
 
 - name: Harden users and ssh
   hosts: all
-  vars_files:
-    - config_vars.yaml
   tasks:
     - name: disable root user
       become: true
@@ -64,20 +66,13 @@
       ansible.posix.authorized_key:
         user: "{{ ansible_user_id }}"
         state: present
-        key: "{{ gh_keyfile }}"
+        key: "{{ gh_keys }}"
 
-# scripts_dir has not been set and are used in the original playbook, will this work?? how? don't think so
 - name: Import script creation playbook
   ansible.builtin.import_playbook: common_playbooks/create_and_move_scripts.yml
 
 - name: Cron management play
   hosts: all
-  vars:
-    home_dir: "/home/{{ ansible_user_id }}"
-    scripts_dir: "{{ home_dir }}/.scripts"
-    logs_dir: "{{ home_dir }}/.log"
-  vars_files:
-    - config_vars.yaml
   tasks:
   # Creating log dir
   - name: Creates log dir
