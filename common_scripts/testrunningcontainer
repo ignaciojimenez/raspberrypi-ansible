@@ -29,6 +29,9 @@ slack_wh="https://hooks.slack.com/services/$wh"
 notokfile=${container//\//_}_notok
 if [ "$( docker container inspect -f '{{.State.Status}}' $container )" != "running" ]; then
   echo "$(date) - $(basename "$0") - ERROR: $container not running"
+  content="{\"text\":\"\`$(hostname)\` - \`${container}\` is not running\n \`\`\`$(docker ps)\`\`\` \"}"
+  echo "$(date) - $(basename "$0") - Webhook result: $(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$slack_wh")"
+  touch "${notokfile}"
   docker stop $container
   docker rm $container
   docker run -d \
@@ -41,7 +44,8 @@ if [ "$( docker container inspect -f '{{.State.Status}}' $container )" != "runni
     ghcr.io/home-assistant/home-assistant:stable
   if [ "$( docker container inspect -f '{{.State.Status}}' $container )" != "running" ]; then
     if ! test -f "${notokfile}"; then
-      content="{\"text\":\"\`$(hostname)\` - \`${container}\` is not running\n \`\`\`$(docker ps)\`\`\` \"}"
+      echo "$(date) - $(basename "$0") - ERROR: $container still not running"
+      content="{\"text\":\"\`$(hostname)\` - \`${container}\` is still not running\n \`\`\`$(docker ps)\`\`\` \"}"
       echo "$(date) - $(basename "$0") - Webhook result: $(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$slack_wh")"
       touch "${notokfile}"
     fi
@@ -56,4 +60,6 @@ elif test -f "${notokfile}"; then
   content="{\"text\":\"\`$(hostname)\` - \`${container}\` is again running\n \`\`\`$(docker ps)\`\`\` \"}"
   echo "$(date) - $(basename "$0") - Webhook result: $(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$slack_wh")"
   rm "${notokfile}"
+else
+  echo "$(date) - $(basename $0) - $container is running"
 fi
