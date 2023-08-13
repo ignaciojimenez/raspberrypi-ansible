@@ -21,7 +21,6 @@ elif ! [[ $1 =~ $wh_regex ]]; then
   exit 0
 fi
 
-#./testvolumequota $(cat token) / 60
 wh=$1
 container=$2
 
