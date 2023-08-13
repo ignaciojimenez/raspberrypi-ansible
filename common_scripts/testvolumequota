@@ -19,11 +19,11 @@ if [ -z ${1+x} ] || [ -z ${2+x} ] || [ -z ${3+x} ]; then
 elif ! [[ $1 =~ $wh_regex ]]; then
   echo "Webhook format invalid. Expected format $wh_regex"
   usage
-  exit 0
+  exit 1
 elif ! [[ $3 =~ $number_regex ]]; then
   echo "Number expected. Received $3"
   usage
-  exit 0
+  exit 1
 fi
 
 #./testvolumequota $(cat token) / 60

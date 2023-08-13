@@ -18,7 +18,7 @@ if [ -z ${1+x} ] || [ -z ${2+x} ] ; then
 elif ! [[ $1 =~ $wh_regex ]]; then
   echo "Webhook format invalid. Expected format $wh_regex"
   usage
-  exit 0
+  exit 1
 fi
 
 #./testvolumequota $(cat token) / 60

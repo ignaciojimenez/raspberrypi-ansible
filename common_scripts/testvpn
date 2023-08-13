@@ -19,11 +19,11 @@ if [ -z ${1+x} ] || [ -z ${2+x} ]; then
 elif ! [[ $1 =~ $wh_regex ]]; then
   echo "Webhook format invalid. Expected format $wh_regex"
   usage
-  exit 0
+  exit 1
 elif ! [[ $2 =~ $ip_regex ]]; then
   echo "IP format invalid. Expected format $ip_regex"
   usage
-  exit 0
+  exit 1
 fi
 
 wh=$1
