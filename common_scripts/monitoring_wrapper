@@ -37,6 +37,9 @@ date_finished=$(date +"%F_%T.%3N")
 
 content_start="{\"text\":\""
 host="Host: \`$(hostname)\`\n"
+# removing potential logging of tokens
+script_path=$(echo "$script_path" | sed "s/${wh_regex}/SLACK_TOKEN/g")
+script_args=$(echo "$script_args" | sed "s/${wh_regex}/SLACK_TOKEN/g")
 script="Executed: \`${script_path} ${script_args}\`\n"
 date_started_fmt="Started: \`${date_started}\`\n"
 date_finished_fmt="Finished: \`${date_finished}\`\n"
