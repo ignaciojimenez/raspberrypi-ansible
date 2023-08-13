@@ -31,7 +31,14 @@ if [ "$( docker container inspect -f '{{.State.Status}}' $container )" != "runni
   echo "$(date) - $(basename "$0") - ERROR: $container not running"
   docker stop $container
   docker rm $container
-  docker run --init -d --restart unless-stopped --name="${container}" -v /home/${USER}/homeassistant:/config --net=host homeassistant/raspberrypi4-homeassistant:stable
+  docker run -d \
+    --name "${ha_name}" \
+    --restart=unless-stopped \
+    --privileged \
+    -e TZ=MY_TIME_ZONE \
+    -v "/home/${USER}/homeassistant:/config"  \
+    --network=host \
+    ghcr.io/home-assistant/home-assistant:stable
   if [ "$( docker container inspect -f '{{.State.Status}}' $container )" != "running" ]; then
     if ! test -f "${notokfile}"; then
       content="{\"text\":\"\`$(hostname)\` - \`${container}\` is not running\n \`\`\`$(docker ps)\`\`\` \"}"
