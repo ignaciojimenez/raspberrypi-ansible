@@ -1,0 +1,67 @@
+#!/bin/bash
+#
+# Script to backup a file or dir to a remote location
+
+set -e          # stop on errors
+set -u          # stop on unset variables
+set -o pipefail # stop on pipe failures
+
+usage(){
+  echo "Usage: $(basename "$0") alert_webhookid service file|dir recipient"
+}
+
+E_NOARGS=85
+wh_regex="T\w*\/B\w*\/\w*"
+# TODO check recipient available in pgp keyservers?
+if [ -z ${1+x} ] || [ -z ${2+x} ] || [ -z ${3+x} ] || [ -z ${4+x} ]; then
+  usage
+  exit "$E_NOARGS"
+elif ! [[ $1 =~ $wh_regex ]]; then
+  echo "Webhook format invalid. Expected format $wh_regex. Received: $1"
+  usage
+  exit 1
+elif ! test -e "$3"; then
+  echo "Cannot access file|dir: $3"
+  usage
+  exit 1
+fi
+
+wh=$1
+service=$2
+fileordir=$3
+recipient=$4
+now=$(date +%d%m%y-%H%M)
+
+if test -d "$fileordir"; then
+  tar_file="/tmp/${fileordir##*/}.tar.gz"
+  parent=$(dirname "$fileordir")
+  cd "$parent"
+  sudo tar -czf "${tar_file}" "${fileordir##*/}"
+  cd - > /dev/null
+  fileordir="${tar_file}"
+fi
+file_enc="${fileordir##*/}-${now}.gpg"
+
+path_enc="/tmp/${file_enc}"
+gpg --quiet --encrypt --output "${path_enc}" --yes --recipient "${recipient}" "${fileordir}"
+
+if [ "${service}" == "transfer.sh" ]; then
+    destination="https://transfer.sh/${file_enc}"
+else
+    echo "Unknown service. Currently available: transfer.sh"
+    exit 1
+fi
+
+response=$(curl --silent --upload-file "${path_enc}" "${destination}")
+rm "$path_enc"
+
+if [[ "${response}" == *"${service}"* ]]; then
+    echo "Backup performed - OK"
+    echo "Backup url: ${response}"
+else
+    webalert_hook="https://hooks.slack.com/services/$wh"
+    echo "$(date) - $(basename "$0") - Backup not performed"
+    content="{\"text\":\"\`$(hostname)\` - Backup failed \nResponse:\`${response}\` \n \"}"
+    echo "$(date) - $(basename "$0") - Calling webhook curl -s -X POST -H Content-type: application/json --data \"${content}\" \$webalert_hook"
+    echo "$(date) - $(basename "$0") - Webhook result: $(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$webalert_hook")"
+fi

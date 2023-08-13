@@ -1,0 +1,43 @@
+#!/bin/bash
+#
+# Script to backup last modified file in a folder
+
+set -e          # stop on errors
+set -u          # stop on unset variables
+set -o pipefail # stop on pipe failures
+
+usage(){
+  echo "Usage: $(basename "$0") alert_webhookid service folder recipient"
+}
+
+E_NOARGS=85
+wh_regex="T\w*\/B\w*\/\w*"
+if [ -z ${1+x} ] || [ -z ${2+x} ] || [ -z ${3+x} ] || [ -z ${4+x} ]; then
+  usage
+  exit "$E_NOARGS"
+elif ! [[ $1 =~ $wh_regex ]]; then
+  echo "Webhook format invalid. Expected format $wh_regex. Received: $1"
+  usage
+  exit 1
+elif ! test -d "$3"; then
+  echo "Cannot access folder: $3"
+  usage
+  exit 1
+fi
+
+wh=$1
+service=$2
+folder=$3
+recipient=$4
+
+latest_file=$(find "$folder" -type f -printf '%T@ %p\n' | sort -n | tail -n 1 | awk '{print $2}')
+
+if [ -n "$latest_file" ]; then
+  source ~/.scripts/do_backup "$wh" "$service" "$latest_file" "$recipient"
+else
+  webalert_hook="https://hooks.slack.com/services/$wh"
+  echo "$(date) - $(basename "$0") - Backup not performed"
+  content="{\"text\":\"\`$(hostname)\` - Backup failed, latest file not retrieved. \n\file:\`${latest_file}\` \n\folder:\`${folder}\` \n \"}"
+  echo "$(date) - $(basename "$0") - Calling webhook curl -s -X POST -H Content-type: application/json --data \"${content}\" \$webalert_hook"
+  echo "$(date) - $(basename "$0") - Webhook result: $(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$webalert_hook")"
+fi
