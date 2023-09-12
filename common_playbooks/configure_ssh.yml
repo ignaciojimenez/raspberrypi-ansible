@@ -1,0 +1,46 @@
+---
+- name: Harden users and ssh
+  hosts: all
+  vars:
+    update_key_script: "/usr/local/bin/update_keys"
+  tasks:
+    - name: Set authorizedkeys for standard user from github
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user_id }}"
+        state: present
+        key: "{{ gh_keys }}"
+    - name: Create authorizedkeycommand script
+      become: true
+      ansible.builtin.copy:
+        dest: "{{ update_key_script }}"
+        owner: root
+        mode: "744"
+        content: |
+          #!/bin/bash
+          curl -sf "{{ gh_keys }}"
+    - name: Harden sshd config
+      become: true
+      ansible.builtin.template:
+        backup: true
+        src: "../common_files/sshd_config.j2"
+        dest: "/etc/ssh/sshd_config"
+        mode: '0755'
+        owner: root
+        group: root
+    - name: Disable root user login
+      become: true
+      ansible.builtin.user:
+        name: root
+        state: present
+        password_lock: true
+        shell: "/sbin/nologin"
+    - name: Lock the user account password
+      become: true
+      ansible.builtin.user:
+        name: "{{ ansible_user_id }}"
+        password_lock: true
+    - name: Reload SSH
+      become: true
+      ansible.builtin.service:
+        name: sshd
+        state: reloaded

@@ -39,34 +39,8 @@
       ansible.builtin.hostname:
         name: "{{ host }}"
 
-- name: Harden users and ssh
-  hosts: all
-  tasks:
-    - name: disable root user
-      become: true
-      ansible.builtin.user:
-        name: root
-        state: present
-        password_lock: true
-        shell: "/sbin/nologin"
-    - name: disable root login
-      become: true
-      ansible.builtin.lineinfile:
-          dest: /etc/ssh/sshd_config
-          regexp: '^PermitRootLogin'
-          line: "PermitRootLogin no"
-          state: present
-          backup: true
-    - name: Change user password to random value
-      become: true
-      ansible.builtin.user:
-        name: "{{ ansible_user_id }}"
-        password: "{{ lookup('password', 'user_pwd.txt length=63') | password_hash('sha512') }}"
-    - name: Set authorized key took from url
-      ansible.posix.authorized_key:
-        user: "{{ ansible_user_id }}"
-        state: present
-        key: "{{ gh_keys }}"
+- name: Import ssh configuration playbook
+  ansible.builtin.import_playbook: common_playbooks/configure_ssh.yml
 
 - name: Import script creation playbook
   ansible.builtin.import_playbook: common_playbooks/create_and_move_scripts.yml
