@@ -1,0 +1,26 @@
+#!/bin/bash
+# 
+# Script to stop and run home-assistant
+
+set -e          # stop on errors
+set -u          # stop on unset variables
+set -o pipefail # stop on pipe failures
+
+ha_name="home-assistant"
+USER="choco"
+if docker ps | grep "${ha_name}" > /dev/null ; then
+  docker stop "${ha_name}" > /dev/null
+fi
+if docker container list -a | grep "${ha_name}" > /dev/null ; then
+  docker rm "${ha_name}" > /dev/null
+fi
+docker run -d \
+  --name "${ha_name}" \
+  --restart=unless-stopped \
+  --privileged \
+  -e TZ=MY_TIME_ZONE \
+  -v "/home/${USER}/homeassistant:/config"  \
+  --network=host \
+  ghcr.io/home-assistant/home-assistant:stable  > /dev/null
+# to check next time this fails -- see if mounted volume is actually mounted
+# docker inspect -f '{{ .Mounts }}' home-assistant

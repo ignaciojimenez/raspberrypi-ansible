@@ -17,6 +17,12 @@
         dest: ~/.scripts/
         mode: '0755'
 
+    - name: Move stop_run_ha script to ~/.scripts
+      copy:
+        src: "{{host}}/stop_run_ha"
+        dest: ~/.scripts/
+        mode: '0755'
+
     - name: Add update_ha to crontab
       cron:
         name: "Run update_ha script"
