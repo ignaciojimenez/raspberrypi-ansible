@@ -1,0 +1,40 @@
+#!/bin/bash
+#
+# Script to backup running pihole configuration
+
+set -e          # stop on errors
+set -u          # stop on unset variables
+set -o pipefail # stop on pipe failures
+
+usage(){
+  echo "Usage: $(basename "$0") alert_webhookid service recipient"
+}
+
+E_NOARGS=85
+wh_regex="T\w*\/B\w*\/\w*"
+if [ -z ${1+x} ] || [ -z ${2+x} ] || [ -z ${3+x} ] ; then
+  usage
+  exit "$E_NOARGS"
+elif ! [[ $1 =~ $wh_regex ]]; then
+  echo "Webhook format invalid. Expected format $wh_regex. Received: $1"
+  usage
+  exit 1
+fi
+
+wh=$1
+service=$2
+recipient=$3
+now=$(date +%d%m%y-%H%M)
+bkp_file="/tmp/pihole_bkp-$now.tar.gz"
+
+/usr/local/bin/pihole -a -t "$bkp_file"
+
+if [ -n "$bkp_file" ]; then
+  source ~/.scripts/do_backup "$wh" "$service" "$bkp_file" "$recipient"
+else
+  webalert_hook="https://hooks.slack.com/services/$wh"
+  echo "$(date) - $(basename "$0") - Backup not performed"
+  content="{\"text\":\"\`$(hostname)\` - Backup failed, latest file not retrieved. \n\file:\`${bkp_file}\` \"}"
+  echo "$(date) - $(basename "$0") - Calling webhook curl -s -X POST -H Content-type: application/json --data \"${content}\" \$webalert_hook"
+  echo "$(date) - $(basename "$0") - Webhook result: $(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$webalert_hook")"
+fi
