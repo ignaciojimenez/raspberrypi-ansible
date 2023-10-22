@@ -117,6 +117,7 @@ download_image(){
   echo "Downloading image" >&2
   echo "-------------------------------------------------------" >&2
   # TODO download to temp and check hashed to avoid having to re-download?
+  
   if [[ $1 = "netinstall" ]]; then
     account="FooDeas"
     project="raspberrypi-ua-netinst"
@@ -126,7 +127,7 @@ download_image(){
   elif [[ "$1" = "raspbian" ]]; then
     url="https://www.raspberrypi.com/software/operating-systems/"
     echo "Getting last raspbian image from ${url}" >&2
-    download_url=$(curl -s ${url} | perl -nle'print $& while m{(?<=href=")[^"]*}g' | grep arm64 | grep lite | grep xz | grep -v torrent)
+    download_url=$(curl -s ${url} | perl -nle'print $& while m{(?<=href=")[^"]*}g' | grep arm64 | grep lite | grep xz | grep -v torrent | grep -v oldstable)
   else
     download_url=$1
   fi
@@ -177,7 +178,7 @@ common(){
   echo "-------------------------------------------------------" >&2
   echo "Creating first time creds" >&2
   username="choco"
-  encpwd=$(echo 'chocotemp' | openssl passwd -crypt -stdin)
+  encpwd=$(echo 'chocotemp' | openssl passwd -6 -stdin)
   echo "${username}:${encpwd}" > "$1"/userconf.txt
 
   echo "-------------------------------------------------------" >&2
