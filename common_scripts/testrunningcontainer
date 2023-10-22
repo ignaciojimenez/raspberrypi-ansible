@@ -48,7 +48,7 @@ notify_and_reboot(){
       container_running="true"
     fi
   fi
-  
+
   if [ "$container_running" == "false" ]; then
     if ! test -f "${notokfile}"; then
       echo "$(date) - $(basename "$0") - ERROR: $container still not running"
