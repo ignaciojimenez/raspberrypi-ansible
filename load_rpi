@@ -35,18 +35,12 @@ else
   exit 1
 fi
 
-# Helpers
-get_wifi_pass(){
-  # here we gather the password that will be used later to configure liquidsoap (could be)
-  echo -n "Please enter wifi [${wifi_ssid}] password:" >&2
-  read -r -s password
-  echo "$password"
-}
-
 add_wifi(){
   # creating the wpa config
-  echo "-------------------------------------------------------"
-  echo "Creating wifi config"
+  echo "-------------------------------------------------------" >&2
+  echo "Creating wifi config" >&2
+  echo -n "Please enter wifi [${wifi_ssid}] password:" >&2
+  read -r -s psk
   {
     echo 'ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev'
     echo 'country=NL'
@@ -54,7 +48,7 @@ add_wifi(){
 
     echo 'network={'
     echo "   ssid=\"$2\""
-    echo "   psk=\"$(get_wifi_pass)\""
+    echo "   psk=\"$psk\""
     echo '}'
   }  >> "${1}"/wpa_supplicant.conf
   echo
@@ -178,7 +172,9 @@ common(){
   echo "-------------------------------------------------------" >&2
   echo "Creating first time creds" >&2
   username="choco"
-  encpwd=$(echo 'chocotemp' | openssl passwd -6 -stdin)
+  echo -n "Please enter first-time password:" >&2
+  read -r -s password
+  encpwd=$(echo "$password" | openssl passwd -6 -stdin)
   echo "${username}:${encpwd}" > "$1"/userconf.txt
 
   echo "-------------------------------------------------------" >&2
