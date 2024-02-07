@@ -77,8 +77,6 @@
 
 - name: Modifying git global config
   hosts: all
-  vars_files:
-    - config_vars.yaml
   tasks:
     - name: setup git name
       community.general.git_config:
