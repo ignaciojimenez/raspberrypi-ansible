@@ -46,22 +46,31 @@ path_enc="/tmp/${file_enc}"
 gpg --quiet --encrypt --output "${path_enc}" --yes --recipient "${recipient}" "${fileordir}"
 
 if [ "${service}" == "transfer.sh" ]; then
-    destination="https://transfer.sh/${file_enc}"
+    backup_url=$(curl --silent --upload-file "${path_enc}" "https://transfer.sh/${file_enc}")
+elif [ "${service}" == "filebin" ]; then
+    bin_name="soydonchoco"
+    upload_url="https://filebin.net/${bin_name}/${file_enc}"
+    response_code=$(curl -X 'POST' -s -o /dev/null -w "%{http_code}" "${upload_url}" -H 'accept: application/json' -H 'Content-Type: application/octet-stream' --data-binary "@${path_enc}")
+    if [ "${response_code}" == "201" ]; then
+      backup_url="${upload_url}"
+    else
+      backup_url=""
+    fi
 else
-    echo "Unknown service. Currently available: transfer.sh"
+    echo "Unknown service. Currently available: transfer.sh|filebin"
     exit 1
 fi
 
-response=$(curl --silent --upload-file "${path_enc}" "${destination}")
+# deleting temporary file
 rm "$path_enc"
 
-if [[ "${response}" == *"${service}"* ]]; then
+if [[ "${backup_url}" == *"${service}"* ]]; then
     echo "Backup performed - OK"
-    echo "Backup url: ${response}"
+    echo "Backup url: ${backup_url}"
 else
     webalert_hook="https://hooks.slack.com/services/$wh"
     echo "$(date) - $(basename "$0") - Backup not performed"
-    content="{\"text\":\"\`$(hostname)\` - Backup failed \nResponse:\`${response}\` \n \"}"
+    content="{\"text\":\"\`$(hostname)\` - Backup failed \nResponse:\`${backup_url}\` \n \"}"
     echo "$(date) - $(basename "$0") - Calling webhook curl -s -X POST -H Content-type: application/json --data \"${content}\" \$webalert_hook"
     echo "$(date) - $(basename "$0") - Webhook result: $(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$webalert_hook")"
 fi
