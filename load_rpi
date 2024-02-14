@@ -121,7 +121,8 @@ download_image(){
   elif [[ "$1" = "raspbian" ]]; then
     url="https://www.raspberrypi.com/software/operating-systems/"
     echo "Getting last raspbian image from ${url}" >&2
-    download_url=$(curl -s ${url} | perl -nle'print $& while m{(?<=href=")[^"]*}g' | grep arm64 | grep lite | grep xz | grep -v torrent | grep -v oldstable)
+    agent="Mozilla/5.0 (Linux; Android 10; SM-G996U Build/QP1A.190711.020; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Mobile Safari/537.36"
+    download_url=$(curl -s -A "${agent}" ${url} | perl -nle'print $& while m{(?<=href=")[^"]*}g' | grep arm64 | grep lite | grep xz | grep -v torrent | grep -v oldstable)
   else
     download_url=$1
   fi
