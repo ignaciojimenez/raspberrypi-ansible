@@ -35,7 +35,8 @@ skip_extensions="*.json"
 latest_file=$(find "$folder" -not -name "${skip_extensions}" -type f -printf '%T@ %p\n' | sort -n | tail -n 1 | awk '{print $2}')
 
 if [ -n "$latest_file" ]; then
-  source ~/.scripts/do_backup "$wh" "$service" "$latest_file" "$recipient"
+  # shellcheck source=/dev/null
+  source "$(dirname "$0")/do_backup" "$wh" "$service" "$latest_file" "$recipient"
 else
   webalert_hook="https://hooks.slack.com/services/$wh"
   echo "$(date) - $(basename "$0") - Backup not performed"
