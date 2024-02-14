@@ -24,7 +24,8 @@ Parameters:
 > Common problems arise with different python versions and ansible being available to specific versions
 
 #### Usage
-- `ansible-playbook installation.yml --limit=[host] -k --extra-vars "host=[host]"`: Ansible playbook to install a host. Note -k is only needed for the first run to add interactive initial password.
+- `ansible-playbook installation.yml --limit=[host] -k --extra-vars "host=[host]"`: Ansible playbook to install a host. 
+> Note -k is only needed for the first run to add interactive initial password.
 
 #### Flavours so far
 ##### devpi
@@ -43,11 +44,19 @@ Streaming box thar uses a [hifiberry](https://www.hifiberry.com/) hat to play hi
 ##### Dockassist
 Raspberry which will run homeassistant inside a dockercontainer
 
-###### TODO - Usage notes
+###### TODO
 - [ ] Migrating from a previous installation is still manual. Procedure should be copying `/home/${USER}/homeassistant/` from the original host and then copy it to the same location and starting homeassistant to pick it up.
 
 ##### Cobra
-TBD
+This raspberry pi will contain a plex server (copying configurations from the previous existing server) and the necessary scripts to download automated torrents
+It is expected for this script to work that the following files are available in the user home folder:
+```
+conf_auth.ini
+conf_move.ini
+```
+
+###### TODO
+- [ ] Migrating from a previous installation is stil manual. Procedure in the comments of the host playbook.
 
 ##### Pihole
 TBD
