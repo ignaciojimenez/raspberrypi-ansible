@@ -10,12 +10,6 @@
       user: "{{ ansible_user_id }}"
       commands: ALL
 
-- name: Include variable files
-  hosts: all
-  tasks:
-  - name: Include variable files
-    ansible.builtin.include_vars: config_vars.yaml
-
 - name: Import update and upgrade playbook
   ansible.builtin.import_playbook: common_playbooks/update_upgrade_clean.yml
 
