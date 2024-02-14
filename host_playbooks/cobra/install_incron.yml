@@ -1,0 +1,30 @@
+---
+- name: Install and config incron to monitor new files created by transmission downloads
+  hosts: all
+  become: true
+  tasks:
+    - name: Install incron package
+      ansible.builtin.apt:
+        name: incron
+        state: present
+        update_cache: true
+    - name: Add current user to incron.allow
+      ansible.builtin.lineinfile:
+        path: /etc/incron.allow
+        line: "{{ ansible_user_id }}"
+        insertbefore: EOF
+    - name: Add incron job for file monitoring
+      vars:
+        incron_action_script: "{{ cobra_folder }}/incron_transmission_action"
+      ansible.builtin.lineinfile:
+        path: "/var/spool/incron/{{ ansible_user_id }}"
+        line: "{{ monitor_folder }} IN_CREATE /bin/bash {{ incron_action_script }}"
+        state: present
+        owner: "{{ ansible_user_id }}"
+        group: incron
+        mode: "0600"
+        create: true
+    - name: Restart incron service
+      ansible.builtin.service:
+        name: incron
+        state: restarted

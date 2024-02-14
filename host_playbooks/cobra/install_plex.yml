@@ -1,0 +1,46 @@
+---
+- name: Docker installation
+  hosts: all
+  vars:
+    plex_key_url: "https://downloads.plex.tv/plex-keys/PlexSign.key"
+    plex_key_file: "/usr/share/keyrings/PlexSign.key"
+    # arm64 requires using debian binaries
+    plex_distro_url: "https://downloads.plex.tv/repo/deb"
+  tasks:
+    - name: Install packages required for plex
+      become: true
+      ansible.builtin.apt:
+        update_cache: true
+        pkg:
+          - apt-transport-https
+
+    - name: Download Plex Repo Key
+      become: true
+      ansible.builtin.get_url:
+        url: "{{ plex_key_url }}"
+        dest: "{{ plex_key_file }}"
+        force: true
+        mode: '0777'
+
+    - name: Add Plex repository
+      become: true
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by={{ plex_key_file }}] {{ plex_distro_url }} public main"
+        filename: "plex"
+        state: present
+        update_cache: true
+
+    - name: Install Plex packages
+      become: true
+      ansible.builtin.apt:
+        install_recommends: true
+        force_apt_get: true
+        update_cache: true
+        pkg:
+          - plexmediaserver
+
+    - name: Restart Plex
+      become: true
+      ansible.builtin.service:
+        name: plexmediaserver
+        state: restarted

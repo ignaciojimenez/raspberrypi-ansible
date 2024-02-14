@@ -1,0 +1,29 @@
+---
+- name: Install ntfs-3g and configure NTFS mount
+  hosts: all
+  become: true
+  tasks:
+    - name: Install ntfs-3g package
+      ansible.builtin.apt:
+        name: ntfs-3g
+        state: present
+        update_cache: true
+
+    - name: Create mount point for NTFS
+      ansible.builtin.file:
+        path: "{{ mount_path }}"
+        state: directory
+        mode: "0777"
+
+    - name: Add fstab entry for NTFS mount
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        line: "UUID={{ UUID }} {{ mount_path }} ntfs defaults,auto,umask=000,users,rw,nofail 0 0"
+
+    - name: Unmount all filesystems
+      ansible.builtin.command: "umount -a"
+      ignore_errors: true
+
+    - name: Mount all filesystems
+      ansible.builtin.command: "mount -a"
+      ignore_errors: true

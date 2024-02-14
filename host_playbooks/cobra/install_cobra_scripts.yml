@@ -1,0 +1,40 @@
+---
+- name: Install cobra renaming script using git
+  hosts: all
+  tasks:
+    - name: Clone a repo with separate git directory
+      ansible.builtin.git:
+        repo: "https://github.com/{{ gh_profile }}/cobra.git"
+        dest: "{{ cobra_folder }}"
+        update: false
+    - name: Create logs directory if it does not exist
+      ansible.builtin.file:
+        path: "{{ cobra_folder }}/logs"
+        state: directory
+        mode: '0755'
+    - name: Create auth directory if it does not exist
+      ansible.builtin.file:
+        path: "{{ cobra_folder }}/auth"
+        state: directory
+        mode: '0700'
+
+    - name: Copy the auth settings
+      ansible.builtin.copy:
+        src: conf_auth.ini
+        dest: "{{ cobra_folder }}/auth"
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_id }}"
+        mode: '0600'
+    - name: Copy the logs settings
+      ansible.builtin.copy:
+        src: conf_move.ini
+        dest: "{{ cobra_folder }}/auth"
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_id }}"
+        mode: '0600'
+
+    - name: Cronjob for hourly checking rss feeds
+      ansible.builtin.cron:
+        name: "Hourly rss checks"
+        special_time: "hourly"
+        job: "/usr/bin/python3 {{ cobra_folder }}/rss.py  >> {{ cobra_folder }}/logs/rss.log 2>&1"

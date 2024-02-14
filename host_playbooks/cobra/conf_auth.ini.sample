@@ -1,0 +1,4 @@
+[AUT]
+auth=usr:passwd
+[SLACK]
+cobra_token="SLACKTOKEN"

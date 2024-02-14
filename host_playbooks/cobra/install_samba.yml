@@ -1,0 +1,41 @@
+---
+- name: Install Samba and modify Samba share configs
+  hosts: all
+  become: true
+  tasks:
+    - name: Install Samba and samba-common-bin packages
+      ansible.builtin.apt:
+        name:
+          - samba
+          - samba-common-bin
+        state: present
+        update_cache: true
+
+    - name: Set ownership for Samba share directory
+      ansible.builtin.file:
+        path: "{{ mount_path }}"
+        owner: nobody
+        group: nogroup
+        mode: "0777"
+        recurse: true
+
+    - name: Configure Samba share
+      ansible.builtin.blockinfile:
+        path: /etc/samba/smb.conf
+        block: |
+          [Plex_Storage]
+            browseable = yes
+            path = {{ mount_path }}
+            guest ok = yes
+            read only = no
+            create mask = 777
+
+    - name: Restart smbd servic
+      ansible.builtin.service:
+        name: smbd
+        state: restarted
+
+    - name: Restart nmbd service
+      ansible.builtin.service:
+        name: nmbd
+        state: restarted

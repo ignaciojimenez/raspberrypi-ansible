@@ -1,0 +1,99 @@
+---
+- name: Disable screen on boot
+  ansible.builtin.import_playbook: ../common_playbooks/disable_screen.yml
+
+- name: Load plex install playbook
+  ansible.builtin.import_playbook: "{{ host }}/install_plex.yml"
+
+- name: setting facts for mount path playbook-wide
+  hosts: all
+  tasks:
+  - name: set facts for mount path playbook-wide
+    set_fact:
+      mount_path: "/mnt/almacenNTFS"
+
+- name: Load ntfs installation and config playbook
+  ansible.builtin.import_playbook: "{{ host }}/mount_ntfs.yml"     
+  vars:
+    UUID: "9E783B49783B1F87"
+
+- name: Load transmission installation and config playbook
+  ansible.builtin.import_playbook: "{{ host }}/install_transmission.yml"
+
+- name: Install feed/naming required libraries
+  hosts: all
+  tasks:
+    - name: Install packages
+      become: true
+      ansible.builtin.apt:
+        pkg:
+          - python3-full
+          - python3-feedparser
+          - tvnamer
+        state: present
+        update_cache: true
+
+- name: setting facts for cobra path playbook-wide
+  hosts: all
+  tasks:
+  - name: setting facts for cobra path playbook-wide
+    set_fact:
+      cobra_folder: "/home/{{ ansible_user_id }}/.cobra"
+
+- name: Load cobra scripts playbook
+  ansible.builtin.import_playbook: "{{ host }}/install_cobra_scripts.yml"
+
+- name: Load incron install and config playbook
+  ansible.builtin.import_playbook: "{{ host }}/install_incron.yml"
+  vars:
+    monitor_folder: "{{ mount_path }}/Descargas/ready"
+
+- name: Load samba installation and config playbook
+  ansible.builtin.import_playbook: "{{ host }}/install_samba.yml"
+
+- name: Adding cobra specific crons
+  hosts: all
+  tasks:
+  # Creating cronjobs
+  - name: Cronjob for hourly volume quota checks
+    vars:
+      dir: "{{ mount_path }}"
+      threshold: "95"
+    ansible.builtin.cron:
+      name: "volume quota"
+      special_time: "hourly"
+      job: "/bin/bash {{ scripts_dir }}/testvolumequota {{ alert_token }} {{ dir }} {{ threshold }} >> {{ logs_dir }}/quota_{{ dir | replace('/', '_') }}.log 2>&1"
+  - name: Cronjob for hourly mountpoint checks
+    vars:
+      dir: "{{ mount_path }}"
+    ansible.builtin.cron:
+      name: "mount check"
+      special_time: "hourly"
+      job: "/bin/bash {{ scripts_dir }}/testvolumemount {{ alert_token }} {{ dir }} >> {{ logs_dir }}/mount_{{ dir | replace('/', '_') }}.log 2>&1"
+  - name: Cronjob for hourly vpn connection check
+    vars:
+      ip_gateway: "10.64.0.1"
+    ansible.builtin.cron:
+      name: "mount check"
+      special_time: "hourly"
+      job: "/bin/bash {{ scripts_dir }}/testvpn {{ alert_token }} {{ ip_gateway }} >> {{ logs_dir }}/vpn_status.log 2>&1"
+
+## TODOS
+# expand tmpfs to be able to perform backups - IF POSSIBLE AND REQUIRED
+# modify /etc/fstab to expand tmpfs to 5gbs
+# tmpfs /tmp tmpfs rw,nodev,nosuid,size=5G 0 0
+# add backup cronjob - not existent previously
+# 0 4 * * * /bin/bash /home/choco/.scripts/monitoring_wrapper "TTSQU20RH/B01HX26CGTC/ujBgXJFVTc2MJOH0bDycnJ8t" "/home/choco/.scripts/do_backup TTSQU20RH/B01HG8URFQX/qUwdWUWZphWV2nk1szxoJcQu transfer.sh /var/lib/plexmediaserver/Library i.jimenezpi@gmail.com" >> /home/choco/.log/backup_last_mod 2>&1
+
+## Migration still today will be manual
+## Original host
+# sudo systemctl stop plexmediaserver
+# sudo tar cfz PlexBackup.tar.gz /var/lib/plexmediaserver/Library
+# copy PlexBackup.tar.gz to destination machine
+# 
+## Destination host
+# sudo systemctl stop plexmediaserver
+# sudo rm -rf /var/lib/plexmediaserver/Library
+# sudo tar -xf PlexBackup.tar.gz --directory /
+# sudo chown -R plex:plex /var/lib/plexmediaserver/Library
+# sudo systemctl start plexmediaserver

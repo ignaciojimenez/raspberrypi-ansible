@@ -1,0 +1,30 @@
+---
+- name: Install transmission and copy settings file
+  hosts: all
+  become: true
+  tasks:
+    - name: Install transmission package
+      ansible.builtin.apt:
+        name: transmission-daemon
+        state: present
+        update_cache: true
+
+    - name: Stop transmission
+      become: true
+      ansible.builtin.service:
+        name: transmission-daemon
+        state: stopped
+
+    - name: Copy the settings
+      ansible.builtin.copy:
+        src: settings.json
+        dest: /etc/transmission-daemon/settings.json
+        owner: debian-transmission
+        group: debian-transmission
+        mode: '0600'
+
+    - name: Start transmission
+      become: true
+      ansible.builtin.service:
+        name: transmission-daemon
+        state: started
