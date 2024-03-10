@@ -12,6 +12,8 @@
       ansible.builtin.lineinfile:
         path: /etc/incron.allow
         line: "{{ ansible_user_id }}"
+        create: true
+        mode: "0600"
         insertbefore: EOF
     - name: Add incron job for file monitoring
       vars:
