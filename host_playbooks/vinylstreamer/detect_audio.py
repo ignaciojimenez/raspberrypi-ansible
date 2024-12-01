@@ -9,7 +9,7 @@ CHUNK_SIZE = 2048
 FORMAT = pyaudio.paInt16
 RATE = 48000
 # TODO pass these as args
-hifipi_ip="10.30.80.100"
+hifipi_ip="10.30.40.100"
 ls_stream="Turntable_stream"
 
 def is_silent(snd_data, threshold):
