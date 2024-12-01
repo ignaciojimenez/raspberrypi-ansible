@@ -48,7 +48,7 @@ gpg --quiet --encrypt --output "${path_enc}" --yes --recipient "${recipient}" "$
 if [ "${service}" == "transfer.sh" ]; then
     backup_url=$(curl --silent --upload-file "${path_enc}" "https://transfer.sh/${file_enc}")
 elif [ "${service}" == "filebin" ]; then
-    bin_name="soydonchoco"
+    bin_name="$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16; echo)"
     upload_url="https://filebin.net/${bin_name}/${file_enc}"
     response_code=$(curl -X 'POST' -s -o /dev/null -w "%{http_code}" "${upload_url}" -H 'accept: application/json' -H 'Content-Type: application/octet-stream' --data-binary "@${path_enc}")
     if [ "${response_code}" == "201" ]; then
@@ -56,6 +56,8 @@ elif [ "${service}" == "filebin" ]; then
     else
       backup_url=""
     fi
+elif [ "${service}" == "file.io" ]; then
+    backup_url=$(curl --silent -F "file=@${path_enc}" "https://file.io" | jq -r '.link')
 else
     echo "Unknown service. Currently available: transfer.sh|filebin"
     exit 1
