@@ -55,12 +55,20 @@
         user: "{{ ansible_user_id }}"
         state: present
 
+    - name: Remove old backups weekly
+      cron:
+        name: "Remove backups weekly"
+        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper \"{{ logging_token }}\" \"cd /home/{{ ansible_user_id }}/homeassistant/backups/ && ls -A1t | tail -n +8 | xargs rm -v\" >> /home/{{ ansible_user_id }}/.log/clean_backups.log 2>&1"
+        special_time: "weekly"
+        user: "{{ ansible_user_id }}"
+        state: present
+
     - name: Prune containers periodically
       cron:
         name: "Prune all docker elements to clean space"
-        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper \"{{ logging_token }}\" \"/usr/bin/docker system prune -f\" >> /home/{{ ansible_user_id }}/.log/docker_prune.log 2>&1"
+        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper \"{{ logging_token }}\" \"/usr/bin/docker system prune -a -f\" >> /home/{{ ansible_user_id }}/.log/docker_prune.log 2>&1"
         minute: '0'
         hour: '0'
-        day: '1'
+        day: '0'
         user: "{{ ansible_user_id }}"
         state: present
