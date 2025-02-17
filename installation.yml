@@ -1,4 +1,11 @@
 ---
+- name: setting initial global
+  hosts: all
+  tasks:
+  - name: set the host fact to inventory_hostname
+    set_fact:
+      host: "{{ inventory_hostname }}"
+
 - name: Allow user to run as root
   hosts: all
   become: true
@@ -68,6 +75,7 @@
         - dnsutils
         - jq
         - fail2ban
+        - vim
 
 - name: Modifying git global config
   hosts: all

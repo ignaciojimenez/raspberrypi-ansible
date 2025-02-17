@@ -14,7 +14,7 @@
       ansible.builtin.copy:
         dest: "{{ update_key_script }}"
         owner: root
-        mode: "744"
+        mode: "755"
         content: |
           #!/bin/bash
           curl -sf "{{ gh_keys }}"
