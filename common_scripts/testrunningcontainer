@@ -11,7 +11,7 @@ usage(){
 }
 
 E_NOARGS=85
-wh_regex="T\w*\/B\w*\/\w*"
+wh_regex="T[A-Z0-9]*\/B[A-Z0-9]*\/[a-zA-Z0-9]*"
 if [ -z ${1+x} ] || [ -z ${2+x} ] ; then
   usage
   exit "$E_NOARGS"
