@@ -6,22 +6,53 @@ set -e          # stop on errors
 set -u          # stop on unset variables
 set -o pipefail # stop on pipe failures
 
+# Colors for terminal output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
 usage(){
   echo "Usage: $(basename "$0") alert_webhookid service file|dir recipient"
+  echo "  alert_webhookid: Slack webhook ID in format T[A-Z0-9]*/B[A-Z0-9]*/[a-zA-Z0-9]*"
+  echo "  service: Currently supported: 0x0.st"
+  echo "  file|dir: Path to file or directory to backup"
+  echo "  recipient: Email address for GPG encryption"
 }
 
+log_msg() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+cleanup() {
+  # Clean up any temporary files
+  if [ -n "${path_enc:-}" ] && [ -f "${path_enc}" ]; then
+    log_msg "Cleaning up temporary file: ${path_enc}"
+    rm -f "${path_enc}"
+  fi
+  
+  if [ -n "${tar_file:-}" ] && [ -f "${tar_file}" ]; then
+    log_msg "Cleaning up temporary tar file: ${tar_file}"
+    rm -f "${tar_file}"
+  fi
+}
+
+# Set up trap to clean up temporary files on exit
+trap cleanup EXIT INT TERM
+
 E_NOARGS=85
-wh_regex="T\w*\/B\w*\/\w*"
-# TODO check recipient available in pgp keyservers?
+wh_regex="T[A-Z0-9]*\/B[A-Z0-9]*\/[a-zA-Z0-9]*"
+
+# Check arguments
 if [ -z ${1+x} ] || [ -z ${2+x} ] || [ -z ${3+x} ] || [ -z ${4+x} ]; then
   usage
   exit "$E_NOARGS"
 elif ! [[ $1 =~ $wh_regex ]]; then
-  echo "Webhook format invalid. Expected format $wh_regex. Received: $1"
+  log_msg "ERROR: Webhook format invalid. Expected format $wh_regex. Received: $1"
   usage
   exit 1
 elif ! test -e "$3"; then
-  echo "Cannot access file|dir: $3"
+  log_msg "ERROR: Cannot access file|dir: $3"
   usage
   exit 1
 fi
@@ -32,47 +63,168 @@ fileordir=$3
 recipient=$4
 now=$(date +%d%m%y-%H%M)
 
+# Initialize variables
+dns_blocked=false
+
+# Check if GPG is installed
+if ! command -v gpg &> /dev/null; then
+  log_msg "ERROR: GPG is not installed. Please install it to use this script."
+  exit 1
+fi
+
+# Check if curl is installed
+if ! command -v curl &> /dev/null; then
+  log_msg "ERROR: curl is not installed. Please install it to use this script."
+  exit 1
+fi
+
+# Check if recipient key is available
+if ! gpg --list-keys "${recipient}" &> /dev/null; then
+  log_msg "WARNING: GPG key for recipient '${recipient}' not found in keyring."
+  log_msg "Attempting to retrieve key from keyserver..."
+  if ! gpg --recv-keys "${recipient}" &> /dev/null; then
+    log_msg "WARNING: Could not retrieve key from keyserver. Encryption may fail."
+  fi
+fi
+
+# Handle directory compression
 if test -d "$fileordir"; then
+  log_msg "Compressing directory: ${fileordir}"
   tar_file="/tmp/${fileordir##*/}.tar.gz"
   parent=$(dirname "$fileordir")
   cd "$parent"
-  sudo tar -czf "${tar_file}" "${fileordir##*/}"
+  if ! sudo tar -czf "${tar_file}" "${fileordir##*/}"; then
+    log_msg "ERROR: Failed to compress directory: ${fileordir}"
+    exit 1
+  fi
   cd - > /dev/null
   fileordir="${tar_file}"
+  log_msg "Directory compressed to: ${tar_file}"
 fi
+
 file_enc="${fileordir##*/}-${now}.gpg"
-
 path_enc="/tmp/${file_enc}"
-gpg --quiet --encrypt --output "${path_enc}" --yes --recipient "${recipient}" "${fileordir}"
 
-if [ "${service}" == "transfer.sh" ]; then
-    backup_url=$(curl --silent --upload-file "${path_enc}" "https://transfer.sh/${file_enc}")
-elif [ "${service}" == "filebin" ]; then
-    bin_name="$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16; echo)"
-    upload_url="https://filebin.net/${bin_name}/${file_enc}"
-    response_code=$(curl -X 'POST' -s -o /dev/null -w "%{http_code}" "${upload_url}" -H 'accept: application/json' -H 'Content-Type: application/octet-stream' --data-binary "@${path_enc}")
-    if [ "${response_code}" == "201" ]; then
-      backup_url="${upload_url}"
-    else
-      backup_url=""
+log_msg "Encrypting file with GPG for recipient: ${recipient}"
+if ! gpg --quiet --encrypt --output "${path_enc}" --yes --recipient "${recipient}" "${fileordir}"; then
+  log_msg "ERROR: GPG encryption failed"
+  exit 1
+fi
+log_msg "File encrypted successfully: ${path_enc}"
+
+log_msg "Uploading encrypted file to ${service}..."
+if [ "${service}" == "0x0.st" ]; then
+    # Add timeout and retry logic with better error handling
+    max_retries=3
+    retry_count=0
+    
+    while [ $retry_count -lt $max_retries ]; do
+        # Use -v for verbose output to a log file for debugging
+        curl_log="/tmp/curl_log_${now}.txt"
+        backup_url=$(curl --verbose --max-time 30 -F "file=@${path_enc}" "https://0x0.st" 2>"$curl_log")
+        
+        # Check if we got a successful response
+        if [[ "${backup_url}" == *"0x0.st"* ]]; then
+            log_msg "Upload successful on attempt $((retry_count + 1))"
+            break
+        fi
+        
+        # Check for specific error conditions - store the result to avoid multiple greps
+        if grep -q "blocked-by: NextDNS" "$curl_log"; then
+            log_msg "${RED}Upload attempt $((retry_count + 1)) failed: Service is being blocked by DNS${NC}"
+            log_msg "${YELLOW}This is likely due to network restrictions or DNS filtering${NC}"
+            # Set a flag to indicate DNS blocking for later use
+            dns_blocked=true
+            # No need to retry if it's being blocked by DNS
+            break
+        else
+            # Log the error details
+            log_msg "Upload attempt $((retry_count + 1)) failed. Error details saved to $curl_log"
+            log_msg "Response received: ${backup_url:-'No response'}"
+            
+            retry_count=$((retry_count + 1))
+            if [ $retry_count -lt $max_retries ]; then
+                log_msg "Retrying in 5 seconds..."
+                sleep 5
+            fi
+        fi
+    done
+    
+    # If all attempts failed, try an alternative service as fallback
+    if [[ "${backup_url}" != *"0x0.st"* ]]; then
+        # Use the dns_blocked flag instead of grep again
+        if [ "$dns_blocked" = true ]; then
+            log_msg "${YELLOW}Upload to 0x0.st failed because the service is blocked by DNS filtering${NC}"
+            log_msg "${YELLOW}You may need to configure your network to allow access to this service${NC}"
+        else
+            log_msg "All attempts to upload to 0x0.st failed. Trying alternative method..."
+        fi
+        
+        # Save file locally as fallback
+        fallback_path="/tmp/backup_${file_enc}"
+        cp "${path_enc}" "$fallback_path"
+        log_msg "Fallback backup saved to: $fallback_path"
     fi
-elif [ "${service}" == "file.io" ]; then
-    backup_url=$(curl --silent -F "file=@${path_enc}" "https://file.io" | jq -r '.link')
 else
-    echo "Unknown service. Currently available: transfer.sh|filebin"
+    log_msg "ERROR: Unknown service. Currently available: 0x0.st"
     exit 1
 fi
 
-# deleting temporary file
-rm "$path_enc"
-
-if [[ "${backup_url}" == *"${service}"* ]]; then
-    echo "Backup performed - OK"
-    echo "Backup url: ${backup_url}"
+if [[ "${backup_url}" == *"0x0.st"* ]]; then
+    log_msg "Backup performed - OK"
+    log_msg "Backup url: ${backup_url}"
+    
+    # Create a file with the backup URL for reference
+    echo "${backup_url}" > "/tmp/backup_url_${now}.txt"
+    log_msg "Backup URL saved to: /tmp/backup_url_${now}.txt"
+    
+    # Print success message with file size information
+    orig_size=$(du -h "${fileordir}" | cut -f1)
+    enc_size=$(du -h "${path_enc}" | cut -f1)
+    log_msg "Original size: ${orig_size}, Encrypted size: ${enc_size}"
+    
+    exit 0
 else
-    webalert_hook="https://hooks.slack.com/services/$wh"
-    echo "$(date) - $(basename "$0") - Backup not performed"
-    content="{\"text\":\"\`$(hostname)\` - Backup failed \nResponse:\`${backup_url}\` \n \"}"
-    echo "$(date) - $(basename "$0") - Calling webhook curl -s -X POST -H Content-type: application/json --data \"${content}\" \$webalert_hook"
-    echo "$(date) - $(basename "$0") - Webhook result: $(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$webalert_hook")"
+    # Check if we have a fallback backup
+    fallback_path="/tmp/backup_${file_enc}"
+    if [ -f "$fallback_path" ]; then
+        log_msg "WARNING: Online backup failed, but local fallback backup is available at: $fallback_path"
+        log_msg "You can manually upload this file later."
+        
+        # Include fallback information in the alert
+        webalert_hook="https://hooks.slack.com/services/$wh"
+        hostname_info=$(hostname)
+        
+        # Use the dns_blocked flag instead of grep again
+        if [ "$dns_blocked" = true ]; then
+            content="{\"text\":\"\`${hostname_info}\` - Online backup failed due to DNS blocking \nFile: \`${fileordir}\`\nLocal backup: \`${fallback_path}\`\n:warning: *The 0x0.st service is being blocked by DNS filtering. You may need to configure your network settings.* \n \"}"  
+        else
+            content="{\"text\":\"\`${hostname_info}\` - Online backup failed but local backup available \nFile: \`${fileordir}\`\nLocal backup: \`${fallback_path}\`\nResponse: \`${backup_url:-'No response'}\` \n \"}"  
+        fi
+    else
+        log_msg "ERROR: Backup failed completely. Response: ${backup_url:-'No response'}"
+        
+        # Check if we have curl logs to include in the alert
+        curl_error=""
+        if [ -f "$curl_log" ]; then
+            # More efficient: avoid using cat and pipe
+            curl_error=$(head -n 10 "$curl_log")
+            log_msg "Curl error details: $curl_error"
+        fi
+        
+        webalert_hook="https://hooks.slack.com/services/$wh"
+        hostname_info=$(hostname)
+        content="{\"text\":\"\`${hostname_info}\` - Backup failed \nFile: \`${fileordir}\`\nResponse: \`${backup_url:-'No response'}\`\nError: \`${curl_error}\` \n \"}"
+    fi
+    
+    log_msg "Sending alert to Slack webhook"
+    webhook_result=$(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$webalert_hook" || echo "Webhook call failed")
+    log_msg "Webhook result: ${webhook_result}"
+    
+    # Return a partial success if we have a fallback backup
+    if [ -f "$fallback_path" ]; then
+        exit 2  # Use exit code 2 to indicate partial success with fallback
+    else
+        exit 1  # Complete failure
+    fi
 fi

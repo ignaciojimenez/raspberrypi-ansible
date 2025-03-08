@@ -6,21 +6,39 @@ set -e          # stop on errors
 set -u          # stop on unset variables
 set -o pipefail # stop on pipe failures
 
+# Colors for terminal output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+log_msg() {
+  echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
 usage(){
   echo "Usage: $(basename "$0") alert_webhookid service folder recipient"
+  echo "  alert_webhookid: Slack webhook ID in format T[A-Z0-9]*/B[A-Z0-9]*/[a-zA-Z0-9]*"
+  echo "  service: Currently supported: 0x0.st"
+  echo "  folder: Path to folder containing files to backup"
+  echo "  recipient: Email address for GPG encryption"
 }
 
 E_NOARGS=85
-wh_regex="T\w*\/B\w*\/\w*"
+wh_regex="T[A-Z0-9]*\/B[A-Z0-9]*\/[a-zA-Z0-9]*"
 if [ -z ${1+x} ] || [ -z ${2+x} ] || [ -z ${3+x} ] || [ -z ${4+x} ]; then
   usage
   exit "$E_NOARGS"
 elif ! [[ $1 =~ $wh_regex ]]; then
-  echo "Webhook format invalid. Expected format $wh_regex. Received: $1"
+  log_msg "${RED}ERROR: Webhook format invalid. Expected format $wh_regex. Received: $1${NC}"
+  usage
+  exit 1
+elif [ "$2" != "0x0.st" ]; then
+  log_msg "${RED}ERROR: Unsupported service: $2. Currently only 0x0.st is supported.${NC}"
   usage
   exit 1
 elif ! test -d "$3"; then
-  echo "Cannot access folder: $3"
+  log_msg "${RED}ERROR: Cannot access folder: $3${NC}"
   usage
   exit 1
 fi
@@ -30,17 +48,61 @@ service=$2
 folder=$3
 recipient=$4
 
+log_msg "${GREEN}Looking for the most recent file in: $folder${NC}"
+
+# Define files to skip
 skip_extensions="*.json"
-#format for multiple extensions="*.{bak,old}"
-latest_file=$(find "$folder" -not -name "${skip_extensions}" -type f -printf '%T@ %p\n' | sort -n | tail -n 1 | awk '{print $2}')
+# Format for multiple extensions="*.{bak,old}"
+
+# Find the latest file using a cross-platform approach
+if find "$folder" -not -name "${skip_extensions}" -type f -printf '%T@ %p\n' 2>/dev/null | grep -q .; then
+  # Linux version with -printf (if it works)
+  latest_file=$(find "$folder" -not -name "${skip_extensions}" -type f -printf '%T@ %p\n' | sort -n | tail -n 1 | awk '{print $2}')
+else
+  # macOS/BSD version without -printf
+  latest_file=$(find "$folder" -not -name "${skip_extensions}" -type f -exec stat -f "%m %N" {} \; | sort -n | tail -n 1 | awk '{$1=""; print substr($0,2)}')
+fi
 
 if [ -n "$latest_file" ]; then
+  log_msg "${GREEN}Found latest file: $latest_file${NC}"
+  log_msg "Backing up file using do_backup..."
+  
+  # Get the full path to the do_backup script
+  do_backup_script="$(dirname "$0")/do_backup"
+  
+  # Check if the do_backup script exists
+  if [ ! -f "$do_backup_script" ]; then
+    log_msg "${RED}ERROR: do_backup script not found at: $do_backup_script${NC}"
+    exit 1
+  fi
+  
   # shellcheck source=/dev/null
-  source "$(dirname "$0")/do_backup" "$wh" "$service" "$latest_file" "$recipient"
+  source "$do_backup_script" "$wh" "$service" "$latest_file" "$recipient"
+  backup_exit_code=$?
+  
+  if [ $backup_exit_code -eq 0 ]; then
+    log_msg "${GREEN}Backup completed successfully${NC}"
+    exit 0
+  elif [ $backup_exit_code -eq 2 ]; then
+    log_msg "${YELLOW}Online backup failed but local fallback backup is available${NC}"
+    log_msg "${YELLOW}Check the Slack notification for details${NC}"
+    exit 0  # Consider this a success for monitoring purposes
+  else
+    log_msg "${RED}Backup failed with exit code: $backup_exit_code${NC}"
+    log_msg "${RED}Check the Slack notification for details${NC}"
+    exit $backup_exit_code
+  fi
 else
+  log_msg "${RED}ERROR: No files found in $folder${NC}"
+  
+  # Send alert to webhook
   webalert_hook="https://hooks.slack.com/services/$wh"
-  echo "$(date) - $(basename "$0") - Backup not performed"
-  content="{\"text\":\"\`$(hostname)\` - Backup failed, latest file not retrieved. \n\file:\`${latest_file}\` \n\folder:\`${folder}\` \n \"}"
-  echo "$(date) - $(basename "$0") - Calling webhook curl -s -X POST -H Content-type: application/json --data \"${content}\" \$webalert_hook"
-  echo "$(date) - $(basename "$0") - Webhook result: $(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$webalert_hook")"
+  hostname_info=$(hostname)
+  content="{\"text\":\"\`${hostname_info}\` - Backup failed, latest file not retrieved. \n\file:\`${latest_file:-'None'}\` \n\folder:\`${folder}\` \n \"}"
+  
+  log_msg "${YELLOW}Sending alert to Slack webhook${NC}"
+  webhook_result=$(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$webalert_hook" || echo "Webhook call failed")
+  log_msg "Webhook result: ${webhook_result}"
+  
+  exit 1
 fi
