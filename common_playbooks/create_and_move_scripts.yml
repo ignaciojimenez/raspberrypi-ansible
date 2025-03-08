@@ -14,3 +14,4 @@
         dest: "{{ scripts_dir }}/"
         mode: preserve
         backup: true
+        force: false
