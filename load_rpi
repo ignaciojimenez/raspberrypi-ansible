@@ -6,235 +6,668 @@ set -e          # stop on errors
 set -u          # stop on unset variables
 set -o pipefail # stop on pipe failures
 
-usage(){
-   echo "Usage: $(basename "$0") image_source hostname"
-   echo "Parameters:"
-   echo " image_source   Where to install the image from. Options: { netinstall | downloadurl | raspbian }"
-   echo " hostname       Type of raspberry. Options: { pihole|cobra|hifipi|dockassist|devpi|vinylstreamer|pizero }"
-   echo
+# Global variables
+TEMP_FILES=()
+LOG_FILE="/tmp/load_rpi_$(date +%Y%m%d%H%M%S).log"
+SCRIPT_VERSION="1.1.0"
+
+# Cleanup function to remove temporary files on exit
+cleanup() {
+  log "INFO" "Cleaning up temporary files..."
+  # Check if array is not empty before iterating
+  if [[ ${#TEMP_FILES[@]} -gt 0 ]]; then
+    for file in "${TEMP_FILES[@]}"; do
+      if [[ -f "$file" ]]; then
+        rm -f "$file"* 2>/dev/null
+      fi
+    done
+  fi
+  log "INFO" "Cleanup complete"
 }
 
-E_NOARGS=85
-if [ $# -ne 2 ]; then
-  usage
-  exit "$E_NOARGS"
-fi
+# Set trap to ensure cleanup happens on exit
+trap cleanup EXIT
 
-url_regex='(https?|ftp|file)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]'
-if [[ "$1" = "raspbian" ]] || [[ "$1" = "netinstall" ]] || [[ $1 =~ $url_regex ]]; then
-  img_src="$1"
-else
-  usage
-  exit 1
-fi
+# Logging function
+log() {
+  local level="$1"
+  shift
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $*" | tee -a "$LOG_FILE" >&2
+}
 
-if [[ "$2" = "pihole" ]] || [[ "$2" = "cobra" ]] || [[ "$2" = "hifipi" ]] || [[ "$2" = "dockassist" ]] || [[ "$2" = "devpi" ]] || [[ "$2" = "vinylstreamer" ]] || [[ "$2" = "pizero" ]]; then
-  host="$2"
-else
-  usage
-  exit 1
-fi
+# Check for required dependencies
+check_dependencies() {
+  log "INFO" "Checking for required dependencies..."
+  local missing_deps=()
+  for cmd in curl diskutil dd openssl bunzip2 unzip stat shasum; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      missing_deps+=("$cmd")
+    fi
+  done
+  
+  if [[ ${#missing_deps[@]} -gt 0 ]]; then
+    log "ERROR" "Missing required dependencies: ${missing_deps[*]}"
+    exit 1
+  fi
+  log "INFO" "All required dependencies are installed"
+}
 
+# Run dependency check
+check_dependencies
+
+log "INFO" "Starting load_rpi script v${SCRIPT_VERSION}"
+
+# Display usage information
+usage(){
+   echo "-------------------------------------------------------"
+   echo "Raspberry Pi SD Card Flashing Tool v${SCRIPT_VERSION}"
+   echo "-------------------------------------------------------"
+   echo "Usage: $(basename "$0") image_source hostname"
+   echo "Parameters:"
+   echo " image_source   Where to install the image from. Options:"
+   echo "                - netinstall: Latest Raspberry Pi Network Installer"
+   echo "                - raspbian: Latest Raspberry Pi OS Lite (64-bit)"
+   echo "                - raspbian32: Latest Raspberry Pi OS Lite (32-bit)"
+   echo "                - URL: Direct URL to an image file (http/https/ftp)"
+   echo " hostname       Type of Raspberry Pi configuration to apply:"
+   echo "                - pihole: Pi-hole DNS server"
+   echo "                - cobra: Network server with WiFi disabled"
+   echo "                - hifipi: Audio server with HiFiBerry DAC+"
+   echo "                - dockassist: Docker assistant with WiFi disabled"
+   echo "                - devpi: Development Pi with WiFi disabled"
+   echo "                - vinylstreamer: Vinyl streaming server with WiFi"
+   echo "                - pizero: Raspberry Pi Zero with WiFi enabled"
+   echo
+   echo "Example: $(basename "$0") raspbian pihole"
+   echo "         $(basename "$0") https://example.com/image.img.xz pizero"
+   echo "-------------------------------------------------------"
+}
+
+# Validate command line arguments
+validate_args() {
+  log "INFO" "Validating command line arguments"
+  
+  # Check if we have exactly 2 arguments
+  if [ $# -ne 2 ]; then
+    log "ERROR" "Expected exactly 2 arguments, got $#"
+    usage
+    exit 1
+  fi
+  
+  # Validate image source
+  local url_regex='(https?|ftp|file)://[-A-Za-z0-9\+&@#/%?=~_|!:,.;]*[-A-Za-z0-9\+&@#/%=~_|]'
+  if [[ "$1" = "raspbian" ]] || [[ "$1" = "raspbian32" ]] || [[ "$1" = "netinstall" ]] || [[ $1 =~ $url_regex ]]; then
+    img_src="$1"
+    log "INFO" "Image source: $img_src"
+  else
+    log "ERROR" "Invalid image source: $1"
+    usage
+    exit 1
+  fi
+  
+  # Validate hostname/device type
+  local valid_hosts=("pihole" "cobra" "hifipi" "dockassist" "devpi" "vinylstreamer" "pizero")
+  local is_valid=false
+  
+  for valid_host in "${valid_hosts[@]}"; do
+    if [[ "$2" = "$valid_host" ]]; then
+      is_valid=true
+      break
+    fi
+  done
+  
+  if [[ "$is_valid" = true ]]; then
+    host="$2"
+    log "INFO" "Host type: $host"
+  else
+    log "ERROR" "Invalid host type: $2"
+    usage
+    exit 1
+  fi
+  
+  return 0
+}
+
+# Process command line arguments
+validate_args "$@"
+
+# Improved WiFi configuration function
 add_wifi(){
-  # creating the wpa config
-  echo "-------------------------------------------------------" >&2
-  echo "Creating wifi config" >&2
-  echo -n "Please enter wifi [${wifi_ssid}] password:" >&2
-  read -r -s psk
+  local mount_point="$1"
+  local ssid="$2"
+  
+  # Validate inputs
+  if [[ -z "$mount_point" || -z "$ssid" ]]; then
+    log "ERROR" "Missing required parameters for add_wifi function"
+    return 1
+  fi
+  
+  if [[ ! -d "$mount_point" ]]; then
+    log "ERROR" "Mount point does not exist: $mount_point"
+    return 1
+  fi
+  
+  # Creating the wpa config
+  log "INFO" "-------------------------------------------------------"
+  log "INFO" "Creating WiFi configuration for SSID: $ssid"
+  
+  # Get password with confirmation
+  local psk=""
+  local psk_confirm=""
+  local psk_valid=false
+  
+  while [[ "$psk_valid" != "true" ]]; do
+    echo -n "Please enter WiFi password for [$ssid]: " >&2
+    read -r -s psk
+    echo >&2
+    
+    # Validate password length
+    if [[ ${#psk} -lt 8 ]]; then
+      log "WARNING" "WiFi password must be at least 8 characters long"
+      continue
+    fi
+    
+    # Confirm password
+    echo -n "Please confirm WiFi password: " >&2
+    read -r -s psk_confirm
+    echo >&2
+    
+    if [[ "$psk" != "$psk_confirm" ]]; then
+      log "WARNING" "Passwords do not match, please try again"
+    else
+      psk_valid=true
+    fi
+  done
+  
+  log "INFO" "Writing wpa_supplicant.conf file"
+  
+  # Create the wpa_supplicant.conf file
   {
     echo 'ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev'
     echo 'country=NL'
     echo 'update_config=1'
-
+    echo ''
     echo 'network={'
-    echo "   ssid=\"$2\""
-    echo "   psk=\"$psk\""
+    echo "   ssid=\"$ssid\"" 
+    echo "   psk=\"$psk\"" 
     echo '}'
-  }  >> "${1}"/wpa_supplicant.conf
-  echo
+  } > "${mount_point}"/wpa_supplicant.conf
+  
+  # Secure the wpa_supplicant.conf file
+  chmod 600 "${mount_point}"/wpa_supplicant.conf
+  
+  log "INFO" "WiFi configuration completed successfully"
+  return 0
 }
 
-# Disk writing functions
-# TODO Unlikely but do it xD
+# Improved disk selection function
 get_what_disk() {
   local disks="$1"
-  echo "${disks}"
+  local disk_count=$(echo "$disks" | wc -l)
+  local selected_disk=""
+  local valid_selection=false
+  
+  log "INFO" "Multiple external disks found:"
+  
+  # List available disks with numbers
+  local i=1
+  while read -r disk_line; do
+    log "INFO" "[$i] $disk_line: $(diskutil info "$disk_line" | grep "Device / Media Name" | cut -d ":" -f2 | xargs)"
+    i=$((i+1))
+  done <<< "$disks"
+  
+  # Ask user to select a disk
+  while [[ "$valid_selection" != "true" ]]; do
+    echo -n "Please select a disk number [1-$disk_count]: " >&2
+    read -r selection
+    
+    if [[ "$selection" =~ ^[0-9]+$ ]] && [[ "$selection" -ge 1 ]] && [[ "$selection" -le "$disk_count" ]]; then
+      selected_disk=$(echo "$disks" | sed -n "${selection}p")
+      valid_selection=true
+    else
+      log "WARNING" "Invalid selection, please try again"
+    fi
+  done
+  
+  echo "$selected_disk"
 }
 
+# Improved GitHub release URL retrieval
 get_latest_release_url() {
   # expected parameters $1:account $2:project $3:filter
-  url=$(curl -s https://api.github.com/repos/"${1}"/"${2}"/releases/latest |
-    grep browser_download_url |
-    grep "${3}" |
-    cut -d '"' -f 4)
-  echo "${url}"
+  log "INFO" "Fetching latest release from GitHub: $1/$2"
+  
+  local response=$(curl -s https://api.github.com/repos/"$1"/"$2"/releases/latest)
+  
+  if [[ -z "$response" || "$response" == *"Not Found"* ]]; then
+    log "ERROR" "Failed to get release information from GitHub"
+    return 1
+  fi
+  
+  local url=$(echo "$response" | grep browser_download_url | grep "$3" | cut -d '"' -f 4 | head -1)
+  
+  if [[ -z "$url" ]]; then
+    log "ERROR" "No matching release file found with filter: $3"
+    return 1
+  fi
+  
+  log "INFO" "Found release URL: $url"
+  echo "$url"
 }
 
+# Improved disk selection function
 disk_selection() {
-  echo "WARNING: This will erase your disk completely and overwrite it" >&2
-  echo "Please review the device information carefully to avoid losing data" >&2
-  echo "-------------------------------------------------------" >&2
-  echo "Starting disk erasure process" >&2
-  echo "-------------------------------------------------------" >&2
-  # first we find out about existing external disks
-  disks=$(diskutil list | grep external | cut -d" " -f1)
-  number_of_disks=$(diskutil list | grep external | cut -d" " -f1 | wc -l)
+  log "INFO" "-------------------------------------------------------"
+  log "WARNING" "This will erase your disk completely and overwrite it"
+  log "INFO" "Please review the device information carefully to avoid losing data"
+  log "INFO" "-------------------------------------------------------"
+  log "INFO" "Starting disk detection process"
+  
+  # Find external disks
+  local disks=$(diskutil list | grep external | cut -d" " -f1)
+  local number_of_disks=$(echo "$disks" | grep -v "^$" | wc -l | xargs)
+  local disk=""
+  
   if [[ $number_of_disks -eq 1 ]]; then
     disk="$disks"
+    log "INFO" "Found one external disk: $disk"
   elif [[ $number_of_disks -eq 0 ]]; then
-    echo "No external devices found" >&2
+    log "ERROR" "No external devices found. Please connect an SD card reader with a card inserted."
     exit 1
   elif [[ $number_of_disks -gt 1 ]]; then
-    echo "Multiple external drives found. Script currently doesn't support it" >&2
-    # disk=$(get_what_disk "${disks}")
-    exit 1
+    log "INFO" "Multiple external drives found: $number_of_disks"
+    disk=$(get_what_disk "$disks")
   else
-    echo "Diskutil output unexpected. Command run: diskutil list | grep external | cut -d" " -f1 | wc -l" >&2
+    log "ERROR" "Unexpected disk detection result"
     exit 1
   fi
 
-  echo "Disk: ${disk} will be formated" >&2
-  diskutil info "${disk}" >&2
-
-  echo "Review the information listed above" >&2
+  log "INFO" "Disk: ${disk} will be formatted"
+  diskutil info "${disk}" | grep -E "Device Node|Device / Media Name|Volume Name|Total Size|Disk Size" >&2
+  
+  log "INFO" "Review the information listed above"
   echo -n "Are you sure you want to proceed and remove ALL DATA in ${disk} (y/n)? " >&2
   read -r answer
   if [ "$answer" == "${answer#[Yy]}" ]; then
-    echo "Program exited" >&2
+    log "INFO" "Operation cancelled by user"
     exit 1
   fi
+  
   echo "${disk}"
 }
 
+# Improved image download function
 download_image(){
-  echo "-------------------------------------------------------" >&2
-  echo "Downloading image" >&2
-  echo "-------------------------------------------------------" >&2
-  # TODO download to temp and check hashed to avoid having to re-download?
+  log "INFO" "-------------------------------------------------------"
+  log "INFO" "Downloading image"
+  log "INFO" "-------------------------------------------------------"
+  
+  local download_url=""
+  local compressed_file=""
+  local extension=""
+  local checksum_url=""
+  local checksum_file=""
+  
+  # Create a temporary directory for downloads
+  local temp_dir=$(mktemp -d)
+  log "INFO" "Created temporary directory: ${temp_dir}"
+  
+  # Add temp directory to cleanup list
+  TEMP_FILES+=("${temp_dir}")
+  
+  # Change to the temporary directory
+  pushd "${temp_dir}" > /dev/null || {
+    log "ERROR" "Failed to change to temporary directory"
+    return 1
+  }
   
   if [[ $1 = "netinstall" ]]; then
     account="FooDeas"
     project="raspberrypi-ua-netinst"
     image_filter="img.bz2"
-    echo "Getting last netinstall release: get_download_url ${account} ${project} ${image_filter}" >&2
-    download_url=$(get_latest_release_url ${account} ${project} ${image_filter})
-  elif [[ "$1" = "raspbian" ]]; then
-    url="https://www.raspberrypi.com/software/operating-systems/"
-    echo "Getting last raspbian image from ${url}" >&2
-    agent="Mozilla/5.0 (Linux; Android 10; SM-G996U Build/QP1A.190711.020; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Mobile Safari/537.36"
-    download_url=$(curl -s -A "${agent}" ${url} | perl -nle'print $& while m{(?<=href=")[^"]*}g' | grep arm64 | grep lite | grep xz | grep -v torrent | grep -v oldstable)
+    log "INFO" "Getting last netinstall release from GitHub: ${account}/${project}"
+    download_url=$(get_latest_release_url "${account}" "${project}" "${image_filter}")
+    if [[ -z "$download_url" ]]; then
+      log "ERROR" "Failed to get download URL for netinstall image"
+      popd > /dev/null
+      return 1
+    fi
+  elif [[ "$1" = "raspbian" || "$1" = "raspbian32" ]]; then
+    # Determine architecture based on the option
+    local arch="arm64"
+    local arch_desc="64-bit"
+    
+    if [[ "$1" = "raspbian32" ]]; then
+      arch="armhf"
+      arch_desc="32-bit"
+    fi
+    
+    log "INFO" "Finding latest Raspbian ${arch_desc} Lite image"
+    
+    # Set user agent for all curl requests
+    agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+    
+    # Step 1: Get the list of all available version directories
+    base_url="https://downloads.raspberrypi.com/raspios_lite_${arch}/images/"
+    log "INFO" "Checking available versions at ${base_url}"
+    
+    version_dirs=$(curl -s -L -A "${agent}" "${base_url}" | grep -o "href=\"raspios_lite_${arch}-[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}/\"" | cut -d'"' -f2 | sort -r)
+    
+    # Get the most recent version directory (first in the sorted list)
+    latest_dir=$(echo "$version_dirs" | head -1)
+    
+    if [[ -z "$latest_dir" ]]; then
+      log "ERROR" "Failed to find any version directories"
+      popd > /dev/null
+      return 1
+    fi
+    
+    log "INFO" "Found latest version directory: ${latest_dir}"
+    
+    # Step 2: Get the image file from the latest directory
+    latest_url="${base_url}${latest_dir}"
+    log "INFO" "Looking for image file in ${latest_url}"
+    
+    image_file=$(curl -s -L -A "${agent}" "${latest_url}" | grep -o 'href="[^"]*\.img\.xz"' | grep -v 'torrent\|sha\|sig' | head -1 | cut -d'"' -f2)
+    
+    if [[ -z "$image_file" ]]; then
+      log "ERROR" "Failed to find image file in latest version directory"
+      popd > /dev/null
+      return 1
+    fi
+    
+    # Construct the full download URL
+    download_url="${latest_url}${image_file}"
+    log "INFO" "Found Raspbian ${arch_desc} image URL: ${download_url}"
+    
+    # Try to get the SHA256 checksum URL
+    checksum_url="${download_url}.sha256"
   else
     download_url=$1
   fi
-  # TODO check if file exists and remove it if it does
-  curl -s -L -O -J "${download_url}"
-  echo "Downloaded url: ${download_url}" >&2
+  
   compressed_file=${download_url##*/}
   extension=${compressed_file##*.}
-
-  if [ "$extension" = "bz2" ]; then
-    echo "Unzipping file: bunzip2 ${compressed_file}" >&2
-    bunzip2 "${compressed_file}"
-  elif [ "$extension" = "xz" ]; then
-    echo "Unzipping file: gunzip ${compressed_file}" >&2
-    gunzip "${compressed_file}"
-  else
-    echo "Unzipping file: unzip -o ${compressed_file} '*.img' " >&2
-    unzip -o "${compressed_file}" "*.img"
-    rm "${compressed_file}"
+  
+  # Download with progress indicator
+  log "INFO" "Downloading from: ${download_url} to ${temp_dir}"
+  if ! curl -L -O -J "${download_url}" --progress-bar; then
+    log "ERROR" "Failed to download image from ${download_url}"
+    popd > /dev/null
+    return 1
   fi
-
-  echo "${compressed_file%.*}"
+  
+  # Verify checksum if available
+  if [[ -n "$checksum_url" ]]; then
+    log "INFO" "Verifying checksum from ${checksum_url}"
+    if curl -s -L -o "${compressed_file}.sha256" "${checksum_url}"; then
+      expected_checksum=$(cat "${compressed_file}.sha256" | awk '{print $1}')
+      actual_checksum=$(shasum -a 256 "${compressed_file}" | awk '{print $1}')
+      
+      if [[ "$expected_checksum" != "$actual_checksum" ]]; then
+        log "ERROR" "Checksum verification failed!"
+        log "ERROR" "Expected: ${expected_checksum}"
+        log "ERROR" "Actual: ${actual_checksum}"
+        popd > /dev/null
+        return 1
+      else
+        log "INFO" "Checksum verification successful"
+      fi
+    else
+      log "WARNING" "Could not download checksum file, skipping verification"
+    fi
+  fi
+  
+  # Extract the image based on extension
+  log "INFO" "Extracting image file from ${compressed_file}"
+  if [[ "$extension" = "bz2" ]]; then
+    log "INFO" "Unzipping file: bunzip2 ${compressed_file}"
+    if ! bunzip2 "${compressed_file}"; then
+      log "ERROR" "Failed to extract bz2 file"
+      popd > /dev/null
+      return 1
+    fi
+  elif [[ "$extension" = "xz" ]]; then
+    log "INFO" "Unzipping file: unxz ${compressed_file}"
+    if ! unxz "${compressed_file}"; then
+      log "ERROR" "Failed to extract xz file"
+      popd > /dev/null
+      return 1
+    fi
+  else
+    log "INFO" "Unzipping file: unzip -o ${compressed_file} '*.img'"
+    if ! unzip -o "${compressed_file}" "*.img"; then
+      log "ERROR" "Failed to extract zip file"
+      popd > /dev/null
+      return 1
+    fi
+  fi
+  
+  # Get the extracted image filename
+  local img_file="${compressed_file%.*}"
+  log "INFO" "Extracted image file: ${img_file}"
+  
+  # Get the full path to the image file
+  local img_path="${temp_dir}/${img_file}"
+  
+  # Return to the original directory
+  popd > /dev/null
+  
+  # Return the full path to the extracted image
+  echo "${img_path}"
 }
 
+# Improved image flashing function
 move_image() {
-  echo "-------------------------------------------------------" >&2
-  echo "Starting Disk flashing procedure" >&2
-  echo "-------------------------------------------------------" >&2
-  disk=${1}
-  file=${2}
-  echo "Unmounting device: diskutil unmountDisk ${disk}" >&2
-  diskutil unmountDisk "${disk}"
-  # keeping as a failover for the future
-  # img_file=$(find . \( -name '*.img' -and -name "${file}*" \) -maxdepth 1)
-  img_file=${file}
-  echo "Flashing device: sudo dd bs=1m if=${img_file} of=/dev/r${1##*/}" >&2
-  sudo dd bs=1m if="${img_file}" of=/dev/r"${1##*/}"
-  echo "Removing temp downloaded files: rm ${file}*" >&2
-  rm "${file}"*
+  log "INFO" "-------------------------------------------------------"
+  log "INFO" "Starting Disk flashing procedure"
+  log "INFO" "-------------------------------------------------------"
+  
+  local disk="$1"
+  local file="$2"
+  
+  # Validate inputs
+  if [[ ! -b "$disk" ]]; then
+    log "ERROR" "Invalid disk device: $disk"
+    return 1
+  fi
+  
+  if [[ ! -f "$file" ]]; then
+    log "INFO" "Image file not found directly, searching for it..."
+    # Try to find the image file
+    local found_img=$(find . \( -name '*.img' -and -name "${file}*" \) -maxdepth 1 | head -1)
+    
+    if [[ -z "$found_img" ]]; then
+      log "ERROR" "Image file not found: $file"
+      return 1
+    else
+      log "INFO" "Found image file: $found_img"
+      file="$found_img"
+    fi
+  fi
+  
+  # Unmount the disk
+  log "INFO" "Unmounting device: diskutil unmountDisk ${disk}"
+  if ! diskutil unmountDisk "${disk}"; then
+    log "ERROR" "Failed to unmount disk: $disk"
+    return 1
+  fi
+  
+  # Get file size for progress calculation
+  local file_size=$(stat -f "%z" "$file")
+  local file_size_mb=$((file_size / 1024 / 1024))
+  log "INFO" "Image file size: ${file_size_mb} MB"
+  
+  # Flash the image with progress reporting
+  log "INFO" "Flashing device: sudo dd bs=1m if=${file} of=/dev/r${disk##*/}"
+  log "INFO" "This may take several minutes. Please be patient."
+  
+  # Use dd with status=progress if available, otherwise fall back to regular dd
+  if sudo dd bs=1m if="${file}" of=/dev/r"${disk##*/}" status=progress 2>/dev/null; then
+    log "INFO" "Disk flashing completed successfully"
+  else
+    log "INFO" "Using alternative dd method without progress reporting"
+    if ! sudo dd bs=1m if="${file}" of=/dev/r"${disk##*/}"; then
+      log "ERROR" "Failed to flash disk"
+      return 1
+    fi
+    log "INFO" "Disk flashing completed successfully"
+  fi
+  
+  # Flush disk buffers
+  log "INFO" "Flushing disk buffers"
+  sudo sync
+  
+  # Add the image file to temp files for cleanup
+  TEMP_FILES+=("${file}")
+  
+  return 0
 }
 
-#specific configs for different pis
+# Improved common configuration function
 common(){
-  echo "-------------------------------------------------------" >&2
-  echo "Enabling ssh" >&2
-  touch "$1"/ssh
-
-  echo "-------------------------------------------------------" >&2
-  echo "Creating first time creds" >&2
-  username="choco"
-  echo -n "Please enter first-time password:" >&2
-  read -r -s password
-  encpwd=$(echo "$password" | openssl passwd -6 -stdin)
-  echo "${username}:${encpwd}" > "$1"/userconf.txt
-
-  echo "-------------------------------------------------------" >&2
-  echo "Pushing config.txt changes" >&2
+  local mount_point="$1"
+  
+  if [[ ! -d "$mount_point" ]]; then
+    log "ERROR" "Mount point does not exist: $mount_point"
+    return 1
+  fi
+  
+  log "INFO" "-------------------------------------------------------"
+  log "INFO" "Enabling SSH"
+  touch "$mount_point"/ssh
+  
+  # Secure password handling
+  log "INFO" "-------------------------------------------------------"
+  log "INFO" "Creating first time credentials"
+  local username="choco"
+  local password=""
+  local password_confirm=""
+  local password_valid=false
+  
+  # Password validation loop
+  while [[ "$password_valid" != "true" ]]; do
+    # Read password with masking
+    echo -n "Please enter first-time password (min 8 chars): " >&2
+    read -r -s password
+    echo >&2
+    
+    # Validate password length
+    if [[ ${#password} -lt 8 ]]; then
+      log "WARNING" "Password must be at least 8 characters long"
+      continue
+    fi
+    
+    # Confirm password
+    echo -n "Please confirm password: " >&2
+    read -r -s password_confirm
+    echo >&2
+    
+    if [[ "$password" != "$password_confirm" ]]; then
+      log "WARNING" "Passwords do not match, please try again"
+    else
+      password_valid=true
+    fi
+  done
+  
+  # Encrypt password and create userconf.txt
+  log "INFO" "Encrypting password"
+  local encpwd=$(echo "$password" | openssl passwd -6 -stdin)
+  echo "${username}:${encpwd}" > "$mount_point"/userconf.txt
+  
+  # Secure the userconf.txt file
+  chmod 600 "$mount_point"/userconf.txt
+  
+  log "INFO" "-------------------------------------------------------"
+  log "INFO" "Applying Raspberry Pi configuration"
+  
+  # Create a config backup if it doesn't exist
+  if [[ ! -f "$mount_point/config.txt.orig" ]]; then
+    cp "$mount_point"/config.txt "$mount_point"/config.txt.orig
+  fi
+  
   # reducing gpu mem to min as we wont be using video at all
-  echo "gpu_mem=16" >> "$1"/config.txt
+  log "INFO" "Setting minimal GPU memory"
+  echo "gpu_mem=16" >> "$mount_point"/config.txt
+  
   # disabling bluetooth
-  echo 'dt_overlay="disable-bt"' >> "$1"/config.txt
+  log "INFO" "Disabling Bluetooth"
+  echo 'dt_overlay="disable-bt"' >> "$mount_point"/config.txt
+  
   # disabling audio
-  sudo sed -i ".bak" "s/.*dtparam=audio=on.*/#dtparam=audio=on/g" "$1"/config.txt
+  log "INFO" "Disabling audio"
+  sudo sed -i ".bak" "s/.*dtparam=audio=on.*/#dtparam=audio=on/g" "$mount_point"/config.txt
+  
   # disable screen parameters that wont be used
-  sudo sed -i ".bak" "s/.*dtoverlay=vc4-kms-v3d.*/#dtoverlay=vc4-kms-v3d/g" "$1"/config.txt
-  sudo sed -i ".bak" "s/.*max_framebuffers.*/#max_framebuffers=2/g" "$1"/config.txt
-  sudo sed -i ".bak" "s/.*disable_overscan.*/#disable_overscan=1/g" "$1"/config.txt
+  log "INFO" "Disabling unused display parameters"
+  sudo sed -i ".bak" "s/.*dtoverlay=vc4-kms-v3d.*/#dtoverlay=vc4-kms-v3d/g" "$mount_point"/config.txt
+  sudo sed -i ".bak" "s/.*max_framebuffers.*/#max_framebuffers=2/g" "$mount_point"/config.txt
+  sudo sed -i ".bak" "s/.*disable_overscan.*/#disable_overscan=1/g" "$mount_point"/config.txt
+  
+  # Clean up backup files - only look for .bak files in the root directory
+  log "INFO" "Cleaning up backup files"
+  find "$mount_point" -maxdepth 1 -name "*.bak" -type f -delete 2>/dev/null || true
+  
+  return 0
 }
 
+# Host-specific configuration functions
 cobra(){
+  log "INFO" "Applying cobra-specific configuration"
   echo 'dt_overlay="disable-wifi"' >> "$1"/config.txt
 }
 
 dockassist(){
+  log "INFO" "Applying dockassist-specific configuration"
   echo 'dt_overlay="disable-wifi"' >> "$1"/config.txt
 }
 
 pihole(){
+  log "INFO" "Applying pihole-specific configuration"
   echo 'dt_overlay="disable-wifi"' >> "$1"/config.txt
 }
 
 devpi(){
+  log "INFO" "Applying devpi-specific configuration"
   echo 'dt_overlay="disable-wifi"' >> "$1"/config.txt
 }
 
 pizero(){
+  log "INFO" "Applying pizero-specific configuration"
   add_wifi "$1" "$2"
 }
 
 hifipi(){
+  log "INFO" "Applying hifipi-specific configuration"
   echo 'dt_overlay="hifiberry-dacplus"' >> "$1"/config.txt
   echo 'dt_overlay="disable-wifi"' >> "$1"/config.txt
 }
 
 vinylstreamer(){
+  log "INFO" "Applying vinylstreamer-specific configuration"
   add_wifi "$1" "$2"
 }
 
-# main
+# Main execution flow
+log "INFO" "-------------------------------------------------------"
+log "INFO" "Starting disk selection process"
 disk=$(disk_selection)
+
+log "INFO" "-------------------------------------------------------"
+log "INFO" "Starting image download process"
 image=$(download_image "${img_src}")
 
 if test -f "${image}" && test -b "${disk}"; then
   move_image "${disk}" "${image}"
 else
-  echo "Exiting, image or disk incorrect"
-  echo "Disk: ${disk}"
-  echo "Image: ${image}"
+  log "ERROR" "Exiting, image or disk incorrect"
+  log "ERROR" "Disk: ${disk}"
+  log "ERROR" "Image: ${image}"
   exit 1
 fi
 
 # sleeping to allow the volume to be mounted
+log "INFO" "Waiting for volume to be mounted"
 sleep 2
 
 # setting useful vars
@@ -242,11 +675,15 @@ volume_name="bootfs"
 volume_path="/Volumes/${volume_name}"
 wifi_ssid="estonoesmazagon"
 
+log "INFO" "-------------------------------------------------------"
+log "INFO" "Applying common configuration"
 # executing common configs
 common ${volume_path}
 
+log "INFO" "-------------------------------------------------------"
+log "INFO" "Applying host-specific configuration for: $host"
 # executing specific host scripts
 "$host" ${volume_path} ${wifi_ssid}
 
-echo "-------------------------------------------------------"
-echo "Process finished succesfully"
+log "INFO" "-------------------------------------------------------"
+log "INFO" "Process finished successfully"
