@@ -26,7 +26,7 @@
     - name: Add update_ha to crontab
       cron:
         name: "Run update_ha script"
-        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper {{ logging_token }} /home/{{ ansible_user_id }}/.scripts/update_ha >> /home/{{ ansible_user_id }}/.log/update_ha 2>&1"
+        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper {{ logging_token }} {{ alert_token }} /home/{{ ansible_user_id }}/.scripts/update_ha >> /home/{{ ansible_user_id }}/.log/update_ha 2>&1"
         minute: '0'
         hour: '3'
         day: '10'
@@ -49,7 +49,7 @@
     - name: Add backup_last_mod to crontab
       cron:
         name: "Do config backup nightly"
-        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper {{ logging_token }} \"/home/{{ ansible_user_id }}/.scripts/backup_last_mod {{ alert_token }} transfer.sh /home/{{ ansible_user_id }}/homeassistant/backups/ {{ git_mail }}\" >> /home/{{ ansible_user_id }}/.log/backup_last_mod 2>&1"
+        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper \"{{ logging_token }}\" \"{{ alert_token }}\" /home/{{ ansible_user_id }}/.scripts/backup_last_mod \"{{ alert_token }}\" 0x0.st /home/{{ ansible_user_id }}/homeassistant/backups/ \"{{ git_mail }}\" >> /home/{{ ansible_user_id }}/.log/backup_last_mod 2>&1"
         minute: '0'
         hour: '4'
         user: "{{ ansible_user_id }}"
@@ -58,7 +58,7 @@
     - name: Remove old backups weekly
       cron:
         name: "Remove backups weekly"
-        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper \"{{ logging_token }}\" \"cd /home/{{ ansible_user_id }}/homeassistant/backups/ && ls -A1t | tail -n +8 | xargs rm -v\" >> /home/{{ ansible_user_id }}/.log/clean_backups.log 2>&1"
+        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper \"{{ logging_token }}\" \"{{ alert_token }}\" \"/bin/bash\" \"-c\" \"cd /home/{{ ansible_user_id }}/homeassistant/backups/ && ls -A1t | tail -n +8 | xargs rm -v\" >> /home/{{ ansible_user_id }}/.log/clean_backups.log 2>&1"
         special_time: "weekly"
         user: "{{ ansible_user_id }}"
         state: present
@@ -66,7 +66,7 @@
     - name: Prune containers periodically
       cron:
         name: "Prune all docker elements to clean space"
-        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper \"{{ logging_token }}\" \"/usr/bin/docker system prune -a -f\" >> /home/{{ ansible_user_id }}/.log/docker_prune.log 2>&1"
+        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper \"{{ logging_token }}\" \"{{ alert_token }}\" \"/usr/bin/docker system prune -a -f\" >> /home/{{ ansible_user_id }}/.log/docker_prune.log 2>&1"
         minute: '0'
         hour: '0'
         day: '0'

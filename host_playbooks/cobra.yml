@@ -83,7 +83,7 @@
 # modify /etc/fstab to expand tmpfs to 5gbs
 # tmpfs /tmp tmpfs rw,nodev,nosuid,size=5G 0 0
 # add backup cronjob - not existent previously
-# 0 4 * * * /bin/bash /home/choco/.scripts/monitoring_wrapper "TTSQU20RH/B01HX26CGTC/ujBgXJFVTc2MJOH0bDycnJ8t" "/home/choco/.scripts/do_backup TTSQU20RH/B01HG8URFQX/qUwdWUWZphWV2nk1szxoJcQu transfer.sh /var/lib/plexmediaserver/Library i.jimenezpi@gmail.com" >> /home/choco/.log/backup_last_mod 2>&1
+# 0 4 * * * /bin/bash /home/choco/.scripts/monitoring_wrapper "TTSQU20RH/B01HX26CGTC/ujBgXJFVTc2MJOH0bDycnJ8t" "TTSQU20RH/B01HG8URFQX/qUwdWUWZphWV2nk1szxoJcQu" "/home/choco/.scripts/do_backup TTSQU20RH/B01HG8URFQX/qUwdWUWZphWV2nk1szxoJcQu 0x0.st /var/lib/plexmediaserver/Library i.jimenezpi@gmail.com" >> /home/choco/.log/backup_last_mod 2>&1
 
 ## Migration still today will be manual
 ## Original host
