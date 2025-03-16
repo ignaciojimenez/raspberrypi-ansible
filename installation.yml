@@ -1,21 +1,21 @@
 ---
-- name: setting initial global
+- name: Setting initial global
   hosts: all
   tasks:
-  - name: set the host fact to inventory_hostname
-    set_fact:
-      host: "{{ inventory_hostname }}"
+    - name: Set the host fact to inventory_hostname
+      ansible.builtin.set_fact:
+        host: "{{ inventory_hostname }}"
 
 - name: Allow user to run as root
   hosts: all
   become: true
   tasks:
-  - name: Creating a sudoer file
-    community.general.sudoers:
-      name: "{{ ansible_user_id }}_nopwd"
-      state: present
-      user: "{{ ansible_user_id }}"
-      commands: ALL
+    - name: Creating a sudoer file
+      community.general.sudoers:
+        name: "{{ ansible_user_id }}_nopwd"
+        state: present
+        user: "{{ ansible_user_id }}"
+        commands: ALL
 
 - name: Import update and upgrade playbook
   ansible.builtin.import_playbook: common_playbooks/update_upgrade_clean.yml
@@ -24,10 +24,10 @@
   hosts: all
   become: true
   tasks:
-  - name: Ensure the locale exists
-    community.general.locale_gen:
-      name: "{{ locale }}"
-      state: present
+    - name: Ensure the locale exists
+      community.general.locale_gen:
+        name: "{{ locale }}"
+        state: present
 
 - name: Import bluetooth disabling playbook
   ansible.builtin.import_playbook: common_playbooks/disable_bluetooth.yml
@@ -39,7 +39,7 @@
     - name: Set hostname
       ansible.builtin.hostname:
         name: "{{ host }}"
-    
+
     - name: Update /etc/hosts
       ansible.builtin.lineinfile:
         path: /etc/hosts
@@ -56,20 +56,21 @@
 - name: Cron management play
   hosts: all
   tasks:
-  # Creating log dir
-  - name: Creates log dir
-    ansible.builtin.file:
-      path: "{{ logs_dir }}"
-      state: directory
-  # Creating cronjobs
-  - name: Cronjob for hourly volume quota checks
-    vars:
-      dir: "/"
-      threshold: "60"
-    ansible.builtin.cron:
-      name: "volume quota"
-      special_time: "hourly"
-      job: "/bin/bash {{ scripts_dir }}/testvolumequota {{ alert_token }} {{ dir }} {{ threshold }} >> {{ logs_dir }}/quota_root.log 2>&1"
+    # Creating log dir
+    - name: Creates log dir
+      ansible.builtin.file:
+        path: "{{ logs_dir }}"
+        state: directory
+        mode: '0755'
+    # Creating cronjobs
+    - name: Cronjob for hourly volume quota checks
+      vars:
+        dir: "/"
+        threshold: "60"
+      ansible.builtin.cron:
+        name: "volume quota"
+        special_time: "hourly"
+        job: "/bin/bash {{ scripts_dir }}/testvolumequota {{ alert_token }} {{ dir }} {{ threshold }} >> {{ logs_dir }}/quota_root.log 2>&1"
 
 - name: Installing generic needed packages
   hosts: all
@@ -78,21 +79,21 @@
     - name: Install packages
       ansible.builtin.apt:
         pkg:
-        - git
-        - dnsutils
-        - jq
-        - fail2ban
-        - vim
+          - git
+          - dnsutils
+          - jq
+          - fail2ban
+          - vim
 
 - name: Modifying git global config
   hosts: all
   tasks:
-    - name: setup git name
+    - name: Setup git name
       community.general.git_config:
         name: user.name
         scope: global
-        value:  "{{ git_name }}"
-    - name: setup git user email
+        value: "{{ git_name }}"
+    - name: Setup git user email
       community.general.git_config:
         name: user.email
         scope: global
@@ -106,6 +107,25 @@
   # TODO: unclear if this var is necessary
   vars:
     host: "{{ host }}"
+
+- name: Create log rotation for all monitoring logs
+  become: true
+  ansible.builtin.copy:
+    content: |
+      {{ logs_dir }}/*.log {
+        weekly
+        rotate 24
+        compress
+        delaycompress
+        missingok
+        notifempty
+        create 644
+      }
+    dest: /etc/logrotate.d/{{host}}
+    mode: '0644'
+    owner: root
+    group: root
+
 
 - name: Import full upgrade and clean playbook
   ansible.builtin.import_playbook: common_playbooks/update_upgrade_clean.yml
