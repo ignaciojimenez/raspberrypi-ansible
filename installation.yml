@@ -149,9 +149,6 @@
 
 - name: Import device specific playbook
   ansible.builtin.import_playbook: "host_playbooks/{{ host }}.yml"
-  # TODO: unclear if this var is necessary
-  vars:
-    host: "{{ host }}"
 
 - name: Import full upgrade and clean playbook
   ansible.builtin.import_playbook: common_playbooks/update_upgrade_clean.yml
