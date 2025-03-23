@@ -1,0 +1,109 @@
+---
+- name: Pihole installation
+  hosts: all
+  vars:
+    pihole_interface: eth0
+    pihole_ip: "10.30.40.200/24"
+    pihole_dns_1: "10.64.0.1"
+    pihole_dns_2: "9.9.9.9"
+    pihole_webpassword: "cd2ec018ffd4451c3f06dd900d041bf832816ec0cd3be293f2224c2bcd6e6831"
+  tasks:
+    - name: Install required packages for Pihole
+      become: true
+      ansible.builtin.apt:
+        update_cache: true
+        pkg:
+          - bc
+
+    - name: Create pihole directory
+      become: true
+      ansible.builtin.file:
+        path: /etc/pihole
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Create setupVars.conf file
+      become: true
+      ansible.builtin.template:
+        src: "setupVars.conf.j2"
+        dest: /etc/pihole/setupVars.conf
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Download Pi-hole installation script
+      block:
+        - name: Download Pi-hole installation script from default url
+          ansible.builtin.get_url:
+            url: https://install.pi-hole.net
+            dest: /tmp/pihole_install.sh
+            mode: '0755'
+          register: download_result
+          failed_when: false
+        - name: Check if Pi-hole installation script was downloaded successfully
+          ansible.builtin.stat:
+            path: /tmp/pihole_install.sh
+          register: file_check
+          failed_when: false
+        - name: Download Pi-hole installation script from backup url if needed
+          ansible.builtin.get_url:
+            url: https://raw.githubusercontent.com/pi-hole/pi-hole/master/automated%20install/basic-install.sh
+            dest: /tmp/pihole_install.sh
+            mode: '0755'
+          when: not file_check.stat.exists or file_check.stat.size == 0
+          register: download_backup
+        - name: Final check if Pi-hole installation script exists
+          ansible.builtin.stat:
+            path: /tmp/pihole_install.sh
+          register: final_check
+          failed_when: not final_check.stat.exists or final_check.stat.size == 0
+
+    - name: Install Pihole with unattended setup
+      become: true
+      ansible.builtin.shell: |
+        export PIHOLE_SKIP_OS_CHECK=true
+        export PH_VERBOSE=false
+        export PH_SKIP_INSTALL=false
+        bash /tmp/pihole_install.sh --unattended
+      register: pihole_install
+      changed_when: download_result.changed
+      args:
+        executable: /bin/bash
+
+    - name: Check if Pihole command exists
+      ansible.builtin.shell: command -v pihole
+      register: pihole_check
+      ignore_errors: true
+      changed_when: false
+      args:
+        executable: /bin/bash
+
+    - name: Check if nameserver 1.1.1.1 exists in resolv.conf
+      become: true
+      ansible.builtin.command: grep -q "nameserver 1.1.1.1" /etc/resolv.conf
+      register: ns_check
+      ignore_errors: true
+      changed_when: false
+      when: pihole_check.rc != 0
+
+    - name: Add nameserver to resolv.conf if needed
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/resolv.conf
+        line: "nameserver 1.1.1.1"
+        state: present
+      when: pihole_check.rc != 0 and ns_check.rc != 0
+
+    - name: Retry Pihole installation if it failed
+      become: true
+      ansible.builtin.shell: |
+        export PIHOLE_SKIP_OS_CHECK=true
+        export PH_VERBOSE=false
+        export PH_SKIP_INSTALL=false
+        bash /tmp/pihole_install.sh --unattended
+      when: pihole_check.rc != 0
+      changed_when: false
+      args:
+        executable: /bin/bash

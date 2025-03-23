@@ -1,0 +1,77 @@
+#!/bin/bash
+#
+# Script to change pihole dns settings when vpn is up/down
+
+set -e          # stop on errors
+set -u          # stop on unset variables
+set -o pipefail # stop on pipe failures
+
+# Log with timestamp
+log() {
+  echo "[$(date)] $1"
+}
+
+# Configuration
+VPN_IP="10.64.0.1"
+VPN_DNS="${VPN_IP}"
+FALLBACK_DNS="9.9.9.9"
+
+# Check if VPN is up by pinging the VPN IP
+check_vpn() {
+  /bin/ping -c 1 -W 2 "${VPN_IP}" > /dev/null 2>&1
+  return $?
+}
+
+# Get current DNS settings from pihole-FTL
+get_current_dns() {
+  sudo pihole-FTL --config dns.upstreams 2>/dev/null || echo "[]"
+}
+
+# Set DNS servers using pihole-FTL
+set_dns_servers() {
+  local primary=$1
+  local secondary=$2
+  local dns_config="[\"${primary}\", \"${secondary}\"]"
+  
+  log "Setting DNS servers to: ${dns_config}"
+  sudo pihole-FTL --config dns.upstreams "${dns_config}"
+  
+  # Also update setupVars.conf for persistence across restarts
+  sudo sed -i "s/PIHOLE_DNS_1=.*/PIHOLE_DNS_1=${primary}#53/" /etc/pihole/setupVars.conf
+  sudo sed -i "s/PIHOLE_DNS_2=.*/PIHOLE_DNS_2=${secondary}#53/" /etc/pihole/setupVars.conf
+  
+  # Restart service to apply changes
+  sudo systemctl restart pihole-FTL
+}
+
+# Main execution
+log "Starting DNS check and change"
+
+# Determine which DNS servers to use based on VPN status
+if check_vpn; then
+  log "VPN is UP, using VPN DNS"
+  PRIMARY_DNS="${VPN_DNS}"
+  SECONDARY_DNS="${FALLBACK_DNS}"
+  
+  # Check if we're already using the correct DNS
+  CURRENT_DNS=$(get_current_dns)
+  if [[ "${CURRENT_DNS}" == *"${VPN_DNS}"* ]]; then
+    log "DNS already correctly configured for VPN"
+    exit 0
+  fi
+else
+  log "VPN is DOWN, using fallback DNS"
+  PRIMARY_DNS="${FALLBACK_DNS}"
+  SECONDARY_DNS="1.1.1.1"  # Secondary fallback
+  
+  # Check if we're already using the correct DNS
+  CURRENT_DNS=$(get_current_dns)
+  if [[ "${CURRENT_DNS}" == *"${FALLBACK_DNS}"* && "${CURRENT_DNS}" != *"${VPN_DNS}"* ]]; then
+    log "DNS already correctly configured for fallback"
+    exit 0
+  fi
+fi
+
+# Apply the DNS configuration
+set_dns_servers "${PRIMARY_DNS}" "${SECONDARY_DNS}"
+log "DNS configuration updated successfully"

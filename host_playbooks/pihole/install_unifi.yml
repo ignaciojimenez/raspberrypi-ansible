@@ -1,0 +1,46 @@
+---
+- name: Unifi Controller installation using GlennR script
+  hosts: all
+  become: true
+  tasks:
+    - name: Update apt cache and install required packages
+      ansible.builtin.apt:
+        update_cache: true
+        name:
+          - ca-certificates
+          - curl
+        state: present
+
+    - name: Check if Unifi is already installed
+      ansible.builtin.stat:
+        path: /usr/lib/unifi
+      register: unifi_installed
+
+    - name: Download GlennR's Unifi installation script
+      ansible.builtin.get_url:
+        url: https://get.glennr.nl/unifi/install/install_latest/unifi-latest.sh
+        dest: /tmp/unifi-latest.sh
+        mode: '0755'
+      when: not unifi_installed.stat.exists
+
+    - name: Run GlennR's Unifi installation script
+      ansible.builtin.shell: |
+        bash /tmp/unifi-latest.sh --skip --add-repository
+      args:
+        executable: /bin/bash
+      register: unifi_install
+      changed_when: unifi_install.rc == 0
+      failed_when: unifi_install.rc != 0
+      when: not unifi_installed.stat.exists
+
+    - name: Check if Unifi service is active
+      ansible.builtin.systemd:
+        name: unifi
+      register: unifi_service
+      failed_when: false
+      changed_when: false
+
+    - name: Display Unifi service status
+      ansible.builtin.debug:
+        msg: "Unifi service is {{ 'running' if unifi_service.status.ActiveState == 'active' else 'not running' }}"
+      when: unifi_service.status is defined

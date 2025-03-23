@@ -1,0 +1,81 @@
+---
+- name: Disable screen on boot
+  ansible.builtin.import_playbook: ../common_playbooks/disable_screen.yml
+
+- name: Install Pihole
+  ansible.builtin.import_playbook: "{{host}}/install_pihole.yml"
+
+- name: Install Unifi Controller
+  ansible.builtin.import_playbook: "{{host}}/install_unifi.yml"
+
+- name: Configure DNS check and change
+  hosts: all
+  tasks:
+    - name: Move dns_checkandchange script to ~/.scripts
+      copy:
+        src: "{{host}}/dns_checkandchange"
+        dest: ~/.scripts/
+        mode: '0755'
+
+    - name: Add dns_checkandchange to crontab
+      cron:
+        name: "DNS check and change"
+        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/dns_checkandchange >> /home/{{ ansible_user_id }}/.log/dns 2>&1"
+        minute: '*/15'
+        user: "{{ ansible_user_id }}"
+        state: present
+
+- name: Pi-hole update automation
+  hosts: all
+  tasks:
+    - name: Create Pi-hole update script
+      copy:
+        dest: "/home/{{ ansible_user_id }}/.scripts/pihole_update.sh"
+        content: |
+          #!/bin/bash
+          set -o pipefail
+          echo "[$(date)] Starting Pi-hole update"
+          sudo pihole -up
+          echo "[$(date)] Pi-hole update completed with exit code $?"
+        mode: '0755'
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_id }}"
+
+    - name: Add Pi-hole update to crontab (monthly)
+      cron:
+        name: "Pi-hole monthly update"
+        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper {{ logging_token }} {{ alert_token }} /home/{{ ansible_user_id }}/.scripts/pihole_update.sh >> /home/{{ ansible_user_id }}/.log/pihole_update 2>&1"
+        special_time: monthly
+        user: "{{ ansible_user_id }}"
+        state: present
+
+- name: Web monitoring
+  hosts: all
+  tasks:
+    - name: Add web test for Unifi Controller to crontab
+      cron:
+        name: "Web test for Unifi Controller"
+        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/testweb {{ alert_token }} https://localhost:8443/manage/account/login?redirect=%2Fmanage%2Faccount%2F unifi-network-app-container >> /home/{{ ansible_user_id }}/.log/web_localhost 2>&1"
+        special_time: "hourly"
+        user: "{{ ansible_user_id }}"
+        state: present
+
+- name: Backup configuration
+  hosts: all
+  tasks:
+    - name: Copy backup_pihole script to scripts directory
+      copy:
+        src: "{{host}}/backup_pihole"
+        dest: "/home/{{ ansible_user_id }}/.scripts/"
+        mode: '0755'
+        owner: "{{ ansible_user_id }}"
+        group: "{{ ansible_user_id }}"
+
+    - name: Add backup_pihole to crontab
+      cron:
+        name: "Do pihole backup nightly"
+        job: "/bin/bash /home/{{ ansible_user_id }}/.scripts/monitoring_wrapper {{ logging_token }} {{ alert_token }} /home/{{ ansible_user_id }}/.scripts/backup_pihole {{ alert_token }} 0x0.st {{ git_mail }} >> /home/{{ ansible_user_id }}/.log/backup_pihole 2>&1"
+        minute: '0'
+        hour: '4'
+        user: "{{ ansible_user_id }}"
+        state: present

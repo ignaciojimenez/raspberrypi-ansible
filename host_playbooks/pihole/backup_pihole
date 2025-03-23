@@ -1,0 +1,56 @@
+#!/bin/bash
+# 
+# Script to backup pihole configuration
+
+set -e          # stop on errors
+set -u          # stop on unset variables
+set -o pipefail # stop on pipe failures
+
+if [ "$#" -lt 3 ]; then
+  echo "Usage: $0 <alert_token> <upload_service> <email>"
+  exit 1
+fi
+
+ALERT_TOKEN="$1"
+UPLOAD_SERVICE="$2"
+EMAIL="$3"
+
+BACKUP_DIR="/tmp/pihole_backup"
+BACKUP_FILE="/tmp/pihole_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
+
+# Create temp directory for backup
+mkdir -p "${BACKUP_DIR}"
+
+# Backup pihole configuration files
+sudo cp -r /etc/pihole "${BACKUP_DIR}/"
+sudo cp -r /etc/dnsmasq.d "${BACKUP_DIR}/"
+
+# Change backup_dir permissions so that user can read
+sudo chmod -R 755 "${BACKUP_DIR}"
+
+# Create archive
+tar -czf "${BACKUP_FILE}" -C "${BACKUP_DIR}" .
+
+# Upload to file sharing service
+UPLOAD_URL=$(curl -F "file=@${BACKUP_FILE}" "${UPLOAD_SERVICE}" 2>/dev/null)
+
+if [ -n "${UPLOAD_URL}" ]; then
+  # Send notification with the URL
+  curl -s -X POST "https://slack.com/api/chat.postMessage" \
+    -H "Authorization: Bearer ${ALERT_TOKEN}" \
+    -H "Content-Type: application/json; charset=utf-8" \
+    --data "{\"channel\":\"#alerts\", \"text\":\"Pihole backup completed. Download: ${UPLOAD_URL}\"}"
+  
+  echo "[$(date)] Backup completed and notification sent. URL: ${UPLOAD_URL}"
+else
+  echo "[$(date)] Failed to upload backup file"
+  
+  # Send failure notification
+  curl -s -X POST "https://slack.com/api/chat.postMessage" \
+    -H "Authorization: Bearer ${ALERT_TOKEN}" \
+    -H "Content-Type: application/json" \
+    --data "{\"channel\":\"#alerts\", \"text\":\"Pihole backup failed. Check logs.\"}"
+fi
+
+# Clean up
+sudo rm -rf "${BACKUP_DIR}" "${BACKUP_FILE}"
