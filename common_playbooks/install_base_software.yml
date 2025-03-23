@@ -1,0 +1,26 @@
+---
+# Install and configure base software packages and git configuration
+- name: Install and configure base software
+  hosts: all
+  tasks:
+    - name: Install packages
+      become: true
+      ansible.builtin.apt:
+        pkg:
+          - git
+          - dnsutils
+          - jq
+          - fail2ban
+          - vim
+
+    - name: Setup git name
+      community.general.git_config:
+        name: user.name
+        scope: global
+        value: "{{ git_name }}"
+
+    - name: Setup git user email
+      community.general.git_config:
+        name: user.email
+        scope: global
+        value: "{{ git_mail }}"

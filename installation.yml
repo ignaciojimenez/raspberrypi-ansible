@@ -36,32 +36,11 @@
 - name: Import update and upgrade playbook
   ansible.builtin.import_playbook: common_playbooks/update_upgrade_clean.yml
 
-- name: Configure locale
-  hosts: all
-  become: true
-  tasks:
-    - name: Ensure the locale exists
-      community.general.locale_gen:
-        name: "{{ locale }}"
-        state: present
+- name: Import system configuration playbook
+  ansible.builtin.import_playbook: common_playbooks/configure_system.yml
 
 - name: Import bluetooth disabling playbook
   ansible.builtin.import_playbook: common_playbooks/disable_bluetooth.yml
-
-- name: Set hostname and update hosts file
-  hosts: all
-  become: true
-  tasks:
-    - name: Set hostname
-      ansible.builtin.hostname:
-        name: "{{ host }}"
-
-    - name: Update /etc/hosts
-      ansible.builtin.lineinfile:
-        path: /etc/hosts
-        regexp: '^127\.0\.1\.1'
-        line: '127.0.1.1       {{ host }}'
-        state: present
 
 - name: Import ssh configuration playbook
   ansible.builtin.import_playbook: common_playbooks/configure_ssh.yml
@@ -69,83 +48,16 @@
 - name: Import script creation playbook
   ansible.builtin.import_playbook: common_playbooks/create_and_move_scripts.yml
 
-- name: Cron management play
-  hosts: all
-  tasks:
-    # Creating log dir
-    - name: Creates log dir
-      ansible.builtin.file:
-        path: "{{ logs_dir }}"
-        state: directory
-        mode: '0755'
-    # Creating cronjobs
-    - name: Cronjob for hourly volume quota checks using enhanced monitoring wrapper
-      vars:
-        dir: "/"
-        threshold: "60"
-      ansible.builtin.cron:
-        name: "volume_quota_monitoring"
-        special_time: "hourly"
-        job: >-
-          {{ scripts_dir }}/enhanced_monitoring_wrapper
-          --heartbeat-interval=daily
-          --notify-fixed=true
-          {{ logging_token }}
-          {{ alert_token }}
-          {{ scripts_dir }}/testvolumequota
-          {{ dir }} {{ threshold }}
-          >> {{ logs_dir }}/root_quota_monitoring.log 2>&1
+- name: Import monitoring setup playbook
+  ansible.builtin.import_playbook: common_playbooks/setup_monitoring.yml
 
-- name: Installing generic needed packages
-  hosts: all
-  become: true
-  tasks:
-    - name: Install packages
-      ansible.builtin.apt:
-        pkg:
-          - git
-          - dnsutils
-          - jq
-          - fail2ban
-          - vim
-
-- name: Modifying git global config
-  hosts: all
-  tasks:
-    - name: Setup git name
-      community.general.git_config:
-        name: user.name
-        scope: global
-        value: "{{ git_name }}"
-    - name: Setup git user email
-      community.general.git_config:
-        name: user.email
-        scope: global
-        value: "{{ git_mail }}"
+- name: Import base software installation playbook
+  ansible.builtin.import_playbook: common_playbooks/install_base_software.yml
 
 - name: Import public gpg key from playbook
   ansible.builtin.import_playbook: common_playbooks/import_gpg_github.yml
 
-- name: Create log rotation for all monitoring logs
-  hosts: all
-  become: true
-  tasks:
-    - name: Create log rotation file
-      ansible.builtin.copy:
-        content: |
-          {{ logs_dir }}/*.log {
-            weekly
-            rotate 24
-            compress
-            delaycompress
-            missingok
-            notifempty
-            create 644
-          }
-        dest: /etc/logrotate.d/{{ host }}
-        mode: '0644'
-        owner: root
-        group: root
+
 
 - name: Import device specific playbook
   ansible.builtin.import_playbook: "host_playbooks/{{ host }}.yml"

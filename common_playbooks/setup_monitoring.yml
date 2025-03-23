@@ -1,0 +1,45 @@
+---
+# Setup monitoring infrastructure including log directories, cron jobs, and log rotation
+- name: Setup monitoring infrastructure
+  hosts: all
+  tasks:
+    - name: Creates log dir
+      ansible.builtin.file:
+        path: "{{ logs_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Cronjob for volume quota checks
+      vars:
+        dir: "/"
+        threshold: "60"
+      ansible.builtin.cron:
+        name: "volume_quota_monitoring"
+        special_time: "hourly"
+        job: >-
+          {{ scripts_dir }}/enhanced_monitoring_wrapper
+          --heartbeat-interval=daily
+          --notify-fixed=true
+          {{ logging_token }}
+          {{ alert_token }}
+          {{ scripts_dir }}/testvolumequota
+          {{ dir }} {{ threshold }}
+          >> {{ logs_dir }}/root_quota_monitoring.log 2>&1
+
+    - name: Create log rotation file
+      become: true
+      ansible.builtin.copy:
+        content: |
+          {{ logs_dir }}/*.log {
+            weekly
+            rotate 24
+            compress
+            delaycompress
+            missingok
+            notifempty
+            create 644
+          }
+        dest: /etc/logrotate.d/{{ host }}
+        mode: '0644'
+        owner: root
+        group: root

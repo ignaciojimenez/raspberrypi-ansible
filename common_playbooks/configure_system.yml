@@ -1,0 +1,21 @@
+---
+# Configure system settings like locale, hostname, and hosts file
+- name: Configure system settings
+  hosts: all
+  become: true
+  tasks:
+    - name: Ensure the locale exists
+      community.general.locale_gen:
+        name: "{{ locale }}"
+        state: present
+
+    - name: Set hostname
+      ansible.builtin.hostname:
+        name: "{{ host }}"
+
+    - name: Update /etc/hosts
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1'
+        line: '127.0.1.1       {{ host }}'
+        state: present
