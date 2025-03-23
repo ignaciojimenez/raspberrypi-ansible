@@ -1,63 +1,123 @@
-# raspberrypi-ansible
-## Description
-This is a collection of scripts to flash an sd card from a MacOS laptop, and kickstart raspberry pi's using minimal raspbian installations and deploy configurations using ansible playbooks
+# Raspberry Pi Ansible
 
-## Usage
-This repo has multiple tools. Use at suited.
-### Pre-bootup - bash script
-`load_rpi`:   MacOS tool to load a base image to an SD card
-```
-Usage: load_rpi image_source hostname
-Parameters:
- image_source   Where to install the image from. Options: { netinstall | downloadurl | raspbian }
- hostname       Type of raspberry. Options: { pihole|cobra|hifipi|dockassist|devpi|vinylstreamer|pizero }
-```
-> Currently commonly used `load_rpi raspbian [host]`
+A comprehensive toolkit for deploying and managing Raspberry Pi devices with Ansible. This project provides tools for both initial SD card setup and post-boot configuration management.
 
-### Post-bootup - ansible
-#### Requisites
-- `python3 -m pip install --user ansible` - more info in [red hat docs](https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html). Useful to have:
-    - `python3 -m pip install --user argcomplete`
-- `ansible-galaxy collection install community.crypto`
-- `ansible-galaxy collection install ansible.posix`
-- passlib - `pip install passlib`
-> Common problems arise with different python versions and ansible being available to specific versions
+## Quick Start
 
-#### Usage
-- `ansible-playbook installation.yml --limit=[host] -k --extra-vars "host=[host]"`: Ansible playbook to install a host. 
-> Note -k is only needed for the first run to add interactive initial password.
+### 1. Pre-Boot Setup (MacOS)
 
-#### Flavours so far
-##### devpi
-Barebones install for testing
+Flash an SD card with a base Raspbian image:
 
-##### hifipi
-Streaming box thar uses a [hifiberry](https://www.hifiberry.com/) hat to play high quality audio received via Airplay using [shairport](https://github.com/mikebrady/shairport-sync) or Spotify connect via [raspotify](https://github.com/dtcooper/raspotify). It also runs [mpd](https://www.musicpd.org) and is used to play streams controlled by remote clients such as `vinylstreamer`
-###### TODO
-- [ ] Find out how to monitor and restart raspotify/airplay receivers if not working
-
-##### Vinylstreamer
-[Icecast](https://icecast.org) server that exposes an internet-radio stream, fed by a [liquidsoap](https://www.liquidsoap.info) defined audiostream using ogg/flac. It will also run a python script `detect_audio.py` that will detect an input audio stream and remotely control an mpd daemon to play the icecast stream
-###### TODO
-- [ ] Define on installation the remote ip to control mpd in `detect_audio.py`
-
-##### Dockassist
-Raspberry which will run homeassistant inside a dockercontainer
-
-###### TODO
-- [ ] Migrating from a previous installation is still manual. Procedure should be copying `/home/${USER}/homeassistant/` from the original host and then copy it to the same location and starting homeassistant to pick it up.
-
-##### Cobra
-This raspberry pi will contain a plex server (copying configurations from the previous existing server) and the necessary scripts to download automated torrents
-It is expected for this script to work that the following files are available in the user home folder:
-```
-conf_auth.ini
-conf_move.ini
+```bash
+./load_rpi raspbian [hostname]
 ```
 
-###### TODO
-- [ ] Migrating from a previous installation is stil manual. Procedure in the comments of the host playbook.
+Where `[hostname]` is one of: `pihole`, `cobra`, `hifipi`, `dockassist`, `devpi`, `vinylstreamer`, or `pizero`.
 
-##### Pihole
-TBD
+### 2. Initial Configuration
 
+Before running Ansible, create your configuration:
+
+```bash
+cp group_vars/all.yaml.sample group_vars/all.yaml
+```
+
+Edit `all.yaml` with your specific settings (GitHub profile, Slack tokens, etc.).
+
+### 3. Run Ansible Playbook
+
+```bash
+ansible-playbook installation.yml --limit=[hostname] -k --extra-vars "host=[hostname]"
+```
+
+The `-k` flag is only needed for the first run to provide the initial SSH password.
+
+## System Requirements
+
+### Control Machine (Your Computer)
+
+- Python 3
+- Ansible: `python3 -m pip install --user ansible`
+- Required collections:
+  ```bash
+  ansible-galaxy collection install community.crypto
+  ansible-galaxy collection install community.general
+  ansible-galaxy collection install ansible.posix
+  ```
+- Passlib: `pip install passlib`
+
+## Project Structure
+
+```
+├── common_playbooks/     # Reusable playbooks for common tasks
+├── common_scripts/       # Scripts deployed to all Raspberry Pis
+├── group_vars/           # Global variables for all hosts
+├── host_playbooks/       # Host-specific playbooks and configurations
+├── installation.yml      # Main playbook that orchestrates the entire setup
+└── load_rpi              # MacOS tool to flash SD cards
+```
+
+## Core Features
+
+- **Modular Design**: Common tasks are separated into reusable playbooks
+- **Enhanced Monitoring**: Intelligent monitoring system with self-healing capabilities
+- **Security Hardening**: SSH hardening, user security, and more
+- **Host-Specific Configurations**: Specialized setups for different use cases
+
+## Monitoring System
+
+The project includes a monitoring system that can:
+
+- Monitor services and restart them if they fail
+- Check disk usage and other system resources
+- Send notifications via Slack webhooks
+- Log activities and self-healing actions
+
+To add monitoring to a host-specific playbook:
+
+```yaml
+- name: Import deploy monitoring
+  ansible.builtin.import_playbook: "../common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "service_name"
+    monitoring_script_src: "path/to/script.sh"
+    cron_minute: "*/5"
+```
+
+## Host Types
+
+### devpi
+Minimal installation used for testing and development.
+
+### pihole
+Network-wide ad blocking solution with DNS management capabilities. It also contains a unifi controller installation.
+
+### hifipi
+High-quality audio streaming device using a HifiBerry HAT. Supports:
+- Airplay via Shairport
+- Spotify Connect via Raspotify
+- MPD for remote-controlled streaming
+
+### vinylstreamer
+Icecast server that streams audio using Liquidsoap. Features:
+- OGG/FLAC audio streaming
+- Audio detection script for remote MPD control
+
+### dockassist
+Docker-based Home Assistant installation for home automation.
+
+### cobra
+Media server and torrent management system featuring:
+- Plex media server
+- Automated torrent downloading
+
+## Troubleshooting
+
+- **SSH Connection Issues**: Ensure the Raspberry Pi is on the network and SSH is enabled
+- **Ansible Errors**: Check Python version compatibility between control machine and Raspberry Pi
+- **Variable Errors**: Verify all required variables are defined in your `group_vars/all.yaml`
+
+## Migration Notes
+
+- **dockassist**: Copy `/home/${USER}/homeassistant/` from original host to new installation
+- **cobra**: See host playbook comments for migration procedure
