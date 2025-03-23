@@ -19,3 +19,8 @@
         regexp: '^127\.0\.1\.1'
         line: '127.0.1.1       {{ host }}'
         state: present
+
+    - name: Set vim.basic as default editor
+      ansible.builtin.alternatives:
+        name: editor
+        path: /usr/bin/vim.basic
