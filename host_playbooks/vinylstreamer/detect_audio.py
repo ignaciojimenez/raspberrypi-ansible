@@ -2,6 +2,21 @@ from array import array
 import pyaudio
 import subprocess
 import sys
+import logging
+import time
+import socket
+
+log_file="/home/choco/.log/detect_audio.log"
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(log_file)
+    ]
+)
 
 START_THRESHOLD = 150
 STOP_THRESHOLD = 50
@@ -35,29 +50,38 @@ def listen():
         if sys.byteorder == 'big':
             snd_data.byteswap()
 
-        #print(f"Current Noise data: {max(snd_data)}")
-        #time.sleep(0.5)
+        # Uncomment for debug level noise monitoring
+        # logging.debug(f"Current Noise data: {max(snd_data)}")
 
         if (not snd_started) and (not is_silent(snd_data, START_THRESHOLD)):
-            sys.stdout.write(f"start stream. Volume: {max(snd_data)}\n")
+            logging.info(f"Starting stream. Volume level: {max(snd_data)}")
             start = subprocess.run(["mpc", f"--host={hifipi_ip}","play"], capture_output=True, text=True)
             if start.stdout:
                 received_stream = start.stdout.splitlines()[0]
                 if received_stream != ls_stream:
-                    sys.stderr.write(f"Unexpected stream response. Received:{received_stream}, expected:{ls_stream}. Command:{start.args} mpc clear and add playlist again\n")
+                    logging.error(f"Unexpected stream response. Received: {received_stream}, expected: {ls_stream}. Command: {start.args}")
                 else:
-                    sys.stdout.write(f"mpc output:\n{start.stdout}")
+                    logging.info(f"MPC output: {start.stdout.strip()}")
                     snd_started = True
             elif start.stderr:
-                sys.stderr.write(f"mpc play error. Full command result:{start}. Ideally mpc clear and add here")
-                # TODO: do this
-                # mpc --host=${hifipi_ip} clear
-                # mpc --host=${hifipi_ip} add http://"${my_ip}":${def_icecast_port}/${ls_name}.ogg
+                logging.error(f"MPC play error. Full command result: {start}. Resetting playlist...")
+                # Reset the playlist
+                subprocess.run(["mpc", f"--host={hifipi_ip}","clear"], capture_output=True)
+                # Get current IP address
+                import socket
+                my_ip = socket.gethostbyname(socket.gethostname())
+                # Add stream back to playlist
+                add_result = subprocess.run(["mpc", f"--host={hifipi_ip}","add", f"http://{my_ip}:8000/phono.ogg"], capture_output=True, text=True)
+                if add_result.stderr:
+                    logging.error(f"Failed to add stream back to playlist: {add_result.stderr}")
+                else:
+                    # Try playing again
+                    subprocess.run(["mpc", f"--host={hifipi_ip}","play"], capture_output=True)
         elif snd_started and is_silent(snd_data, STOP_THRESHOLD):
-            sys.stdout.write(f"stop stream. Volume: {max(snd_data)}\n")
+            logging.info(f"Stopping stream. Volume level: {max(snd_data)}")
             stop = subprocess.run(["mpc", f"--host={hifipi_ip}","stop"], capture_output=True, text=True)
-            if stop.stdout: sys.stdout.write(f"mpc output:\n{stop.stdout}")
-            if stop.stderr: sys.stderr.write(f"mpc error output:\n{stop.stderr}")
+            if stop.stdout: logging.info(f"MPC output: {stop.stdout.strip()}")
+            if stop.stderr: logging.error(f"MPC error output: {stop.stderr.strip()}")
             snd_started = False
 
         stream.stop_stream()

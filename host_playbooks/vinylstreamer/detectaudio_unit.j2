@@ -5,8 +5,12 @@ After=sound.target
 [Service]
 User={{ ansible_user_id }}
 ExecStartPre=/bin/sleep 5
-ExecStart={{ d_audio_path }}/detect_audio.py
+ExecStartPre=/bin/mkdir -p {{ logs_dir }}
+ExecStartPre=/bin/touch {{ logs_dir }}/detect_audio_daemon.log
+ExecStartPre=/bin/chown {{ ansible_user_id }}:{{ ansible_user_id }} {{ logs_dir }}/detect_audio_daemon.log
+ExecStart={{ d_audio_path }}/detect_audio.py >> {{ logs_dir }}/detect_audio_daemon.log 2>&1
 Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target

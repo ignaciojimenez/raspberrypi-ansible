@@ -5,6 +5,37 @@
     ls_folder: "liquidsoap"
 
   tasks:
+    - name: Create FFmpeg preferences file to pin packages from Debian
+      become: true
+      ansible.builtin.copy:
+        dest: "/etc/apt/preferences.d/ffmpeg.pref"
+        content: |
+          Package: ffmpeg libavcodec-dev libavcodec59 libavdevice59 libavfilter8 libavformat-dev libavformat59 libavutil-dev libavutil57 libpostproc56 libswresample-dev libswresample4 libswscale-dev libswscale6
+          Pin: origin deb.debian.org
+          Pin-Priority: 1001
+        mode: '0644'
+
+    - name: Update apt cache
+      become: true
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Install FFmpeg dependencies
+      become: true
+      ansible.builtin.apt:
+        name:
+          - ffmpeg
+          - libswresample4
+          - libavdevice59
+          - libavfilter8
+          - libpostproc56
+          - libavutil57
+          - libswscale6
+          - libavformat59
+          - libavcodec59
+        state: present
+        allow_unauthenticated: true
+
     - name: Install Liquidsoap via apt
       become: true
       ansible.builtin.apt:
@@ -61,10 +92,33 @@
         dest: "/lib/systemd/system/{{ ls_name }}_liquidsoap.service"
         mode: "0644"
 
-    - name: Reload systemd and Enable liquidsoap service
+    - name: Reload systemd daemon
       become: true
       ansible.builtin.systemd:
         daemon_reload: true
+
+    - name: Enable liquidsoap service
+      become: true
+      ansible.builtin.systemd:
         name: "{{ ls_name }}_liquidsoap.service"
         enabled: true
-        state: started
+
+    - name: Start liquidsoap service with retries to account for sleep delay
+      become: true
+      ansible.builtin.shell: systemctl start {{ ls_name }}_liquidsoap.service
+      register: start_result
+      retries: 3
+      delay: 10
+      until: start_result.rc == 0
+      ignore_errors: true
+      
+    - name: Check if liquidsoap service is running
+      become: true
+      ansible.builtin.shell: systemctl is-active {{ ls_name }}_liquidsoap.service || echo "not running"
+      register: service_status
+      changed_when: false
+      
+    - name: Display service status
+      ansible.builtin.debug:
+        msg: "Liquidsoap service status: {{ service_status.stdout }}"
+      when: service_status.stdout != "active"

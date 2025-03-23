@@ -22,41 +22,49 @@
         dest: "{{ d_audio_path }}/"
         mode: '0644'
 
-    - name: Install python3 pip
+    - name: Install required Python packages
       become: true
       ansible.builtin.apt:
-        name: python3-pip
+        name:
+          - python3-pip
+          - python3-venv
+          - python3-full
+          - portaudio19-dev
         state: present
 
-    - name: Install portaudio library as required to build pyaudio
-      become: true
-      ansible.builtin.apt:
-        name: portaudio19-dev
-        state: present
+    - name: Create Python virtual environment
+      ansible.builtin.command: python3 -m venv "{{ d_audio_path }}/venv"
+      args:
+        creates: "{{ d_audio_path }}/venv"
 
-    - name: Install virtualenv via pip
-      ansible.builtin.pip:
-        name: virtualenv
-        executable: pip
-
-    - name: Force PIP upgrade
-      ansible.builtin.pip:
-        name: pip
-        state: latest
-
-    - name: Create virtual environment
+    - name: Install requirements in virtual environment
       ansible.builtin.pip:
         requirements: "{{ d_audio_path }}/requirements.txt"
         virtualenv: "{{ d_audio_path }}/venv"
-        virtualenv_python: python3
-        virtualenv_command: /home/{{ ansible_user_id }}/.local/bin/virtualenv
+        state: present
+
+    - name: Check if virtual environment exists
+      ansible.builtin.stat:
+        path: "{{ d_audio_path }}/venv/bin/python3"
+      register: venv_python_stat
+
+    - name: Get the path to the Python interpreter in the virtual environment
+      ansible.builtin.set_fact:
+        venv_python_path: "{{ d_audio_path }}/venv/bin/python3"
+      when: venv_python_stat.stat.exists
+
+    - name: Debug Python interpreter path
+      ansible.builtin.debug:
+        msg: "Using Python interpreter at: {{ venv_python_path }}"
+      when: venv_python_stat.stat.exists
 
     - name: Add shebang to detect_audio.py
       ansible.builtin.lineinfile:
         path: "{{ d_audio_path }}/detect_audio.py"
-        line: "#!{{ d_audio_path }}/venv/bin/python3 -u"
+        line: "#!{{ venv_python_path }} -u"
         insertbefore: BOF
         backup: true
+      when: venv_python_stat.stat.exists
 
     - name: Create systemd service
       become: true

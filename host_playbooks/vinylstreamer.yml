@@ -55,6 +55,16 @@
         arecord -l | grep -oP "(?<=card )\d+(?=:.*)" | head -1;
         arecord -l | grep -oP "(?<=device )\d+" | head -1
       register: arecord_output
+      failed_when: arecord_output.stdout_lines | length < 2
+    
+    - name: Verify audio device was found
+      fail:
+        msg: |
+          No audio capture device found or device information is incomplete.
+          Please check that your audio hardware is properly connected and recognized by the system.
+          You can manually verify with 'arecord -l' command.
+      when: arecord_output.stdout_lines | length < 2
+    
     - name: Set facts for card and device values
       set_fact:
         card: "{{ arecord_output.stdout_lines[0] }}"
@@ -83,17 +93,31 @@
 - name: Install mpc and add stream to playlist
   hosts: all
   vars:
-    hifipi_ip: "10.30.40.100"
+    hifipi_fallback_ip: "10.30.40.100"
     def_icecast_port: "8000"
-
-  # basic mpc guidance
-  # mpc --host=${hifipi_ip} volume 100
-  # mpc --host=${hifipi_ip} clear
-  # mpc --host=${hifipi_ip} add http://10.30.80.101:8000/phono.ogg
-  # mpc --host=${hifipi_ip} playlist  --> returns $icecast_name
-  # mpc --host=${hifipi_ip} play
-  # mpc --host=${hifipi_ip} stop
+  
+    # basic mpc guidance
+    # mpc --host=${hifipi_ip} volume 100
+    # mpc --host=${hifipi_ip} clear
+    # mpc --host=${hifipi_ip} add http://10.30.80.101:8000/phono.ogg
+    # mpc --host=${hifipi_ip} playlist  --> returns $icecast_name
+    # mpc --host=${hifipi_ip} play
+    # mpc --host=${hifipi_ip} stop
   tasks:
+    - name: Try to resolve hifipi hostname
+      ansible.builtin.command: getent hosts hifipi
+      register: hifipi_dns_result
+      changed_when: false
+      failed_when: false
+      
+    - name: Set hifipi IP from DNS resolution
+      ansible.builtin.set_fact:
+        hifipi_ip: "{{ hifipi_dns_result.stdout.split() | first if hifipi_dns_result.rc == 0 else hifipi_fallback_ip }}"
+      
+    - name: Display hifipi IP address
+      ansible.builtin.debug:
+        msg: "Using hifipi IP address: {{ hifipi_ip }} ({% if hifipi_dns_result.rc == 0 %}from DNS{% else %}fallback{% endif %})"
+
     - name: Install mpc
       become: true
       ansible.builtin.apt:
@@ -121,3 +145,6 @@
 
 - name: Detect audio script deployment
   ansible.builtin.import_playbook: "{{host}}/deploy_detectaudio.yml"
+
+- name: Deploy monitoring for vinylstreamer
+  ansible.builtin.import_playbook: "{{host}}/deploy_monitoring.yml"

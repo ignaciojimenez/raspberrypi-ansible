@@ -1,0 +1,78 @@
+---
+# Deploy vinylstreamer monitoring using the enhanced monitoring wrapper
+
+- name: Deploy vinylstreamer monitoring
+  hosts: vinylstreamer
+  vars:
+    # Required variables
+    monitoring_name: "vinylstreamer_monitoring"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/vinylstreamer/vinylstreamer_monitor.sh"
+    cron_minute: "*/10"
+    cron_hour: "*"
+    cron_day: "*"
+    cron_month: "*"
+    cron_weekday: "*"
+    # Optional variables with explicit values
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+    monitoring_script_args: ""
+
+  tasks:
+    - name: Copy enhanced monitoring wrapper
+      ansible.builtin.copy:
+        src: "../../common_scripts/enhanced_monitoring_wrapper"
+        dest: "{{ scripts_dir }}/enhanced_monitoring_wrapper"
+        mode: '0755'
+
+    - name: Install required packages for monitoring
+      become: true
+      ansible.builtin.apt:
+        name:
+          - jq
+          - curl
+          - bc
+        state: present
+
+    - name: Copy monitoring script
+      ansible.builtin.copy:
+        src: "{{ monitoring_script_src }}"
+        dest: "{{ scripts_dir }}/{{ monitoring_script_src | basename }}"
+        mode: '0755'
+      when: monitoring_script_src is defined
+      # This will show the search paths if the file is not found
+      ignore_errors: false
+
+    # Set up cron job with direct variable references (no computed variables)
+    - name: Set up cron job for monitoring with enhanced_monitoring_wrapper (using standard schedule)
+      ansible.builtin.cron:
+        name: "{{ monitoring_name }}"
+        job: >-
+          {{ scripts_dir }}/enhanced_monitoring_wrapper
+          --heartbeat-interval={{ heartbeat_interval }}
+          --notify-fixed={{ notify_fixed }}
+          {{ logging_token }}
+          {{ alert_token }}
+          {{ scripts_dir }}/{{ monitoring_script_src | basename }}
+          {{ monitoring_script_args }}
+          >> {{ logs_dir }}/{{ monitoring_name }}.log 2>&1
+        minute: "{{ cron_minute }}"
+        hour: "{{ cron_hour }}"
+        day: "{{ cron_day }}"
+        month: "{{ cron_month }}"
+        weekday: "{{ cron_weekday }}"
+      when: special_time is not defined or special_time == ''
+
+    - name: Set up cron job for monitoring with enhanced_monitoring_wrapper (using special time)
+      ansible.builtin.cron:
+        name: "{{ monitoring_name }}"
+        job: >-
+          {{ scripts_dir }}/enhanced_monitoring_wrapper
+          --heartbeat-interval={{ heartbeat_interval }}
+          --notify-fixed={{ notify_fixed }}
+          {{ logging_token }}
+          {{ alert_token }}
+          {{ scripts_dir }}/{{ monitoring_script_src | basename }}
+          {{ monitoring_script_args }}
+          >> {{ logs_dir }}/{{ monitoring_name }}.log 2>&1
+        special_time: "{{ special_time }}"
+      when: special_time is defined and special_time != ''
