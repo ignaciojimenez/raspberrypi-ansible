@@ -1,7 +1,31 @@
 ---
 - name: Devpi host playbook
-  hosts: all
+  hosts: devpi
   tasks:
     - name: Print message
       ansible.builtin.debug:
         msg: "Host:{{ ansible_host }} - does not require a specific playbook"
+
+- name: Import deploy monitoring
+  ansible.builtin.import_playbook: "../common_playbooks/deploy_monitoring.yml"
+  vars:
+    # What to monitor
+    monitoring_name: "devpi_monitoring_script"
+    # A script to monitor with args
+    # Create a simple monitoring script to check if devpi is running
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/devpi/devpi_monitor.sh"
+    # monitoring_script_args: "--verbose"
+    # OR A command to monitor
+    # monitoring_command: "systemctl status ssh && echo 'SSH is running correctly' || (echo 'ACTIONS TAKEN: Attempting to restart ssh' && systemctl restart ssh)"
+    # Cronjob schedule
+    # Standard cron format
+    cron_minute: "*/5"
+    # cron_hour: "*"
+    # cron_day: "*"
+    # cron_month: "*"
+    # cron_weekday: "*"
+    # OR a special time
+    # special_time: "monthly"
+    # Enhanced monitoring options
+    heartbeat_interval: "always"
+    notify_fixed: "true"
