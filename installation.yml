@@ -63,14 +63,22 @@
         state: directory
         mode: '0755'
     # Creating cronjobs
-    - name: Cronjob for hourly volume quota checks
+    - name: Cronjob for hourly volume quota checks using enhanced monitoring wrapper
       vars:
         dir: "/"
         threshold: "60"
       ansible.builtin.cron:
-        name: "volume quota"
+        name: "volume_quota_monitoring"
         special_time: "hourly"
-        job: "/bin/bash {{ scripts_dir }}/testvolumequota {{ alert_token }} {{ dir }} {{ threshold }} >> {{ logs_dir }}/quota_root.log 2>&1"
+        job: >-
+          {{ scripts_dir }}/enhanced_monitoring_wrapper
+          --heartbeat-interval=daily
+          --notify-fixed=true
+          {{ logging_token }}
+          {{ alert_token }}
+          {{ scripts_dir }}/testvolumequota
+          {{ dir }} {{ threshold }}
+          >> {{ logs_dir }}/root_quota_monitoring.log 2>&1
 
 - name: Installing generic needed packages
   hosts: all

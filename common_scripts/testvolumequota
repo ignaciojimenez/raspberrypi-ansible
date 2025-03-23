@@ -1,62 +1,57 @@
 #!/bin/bash
 #
-# Notification script
+# Volume quota check script
+# Simplified version to work with enhanced_monitoring_wrapper
+#
+# Usage: testvolumequota dir threshold
+# Example: testvolumequota / 60
 
 set -e          # stop on errors
 set -u          # stop on unset variables
 set -o pipefail # stop on pipe failures
 
 usage(){
-  echo "Usage: $(basename "$0") webhook-id dir threshold"
+  echo "Usage: $(basename "$0") dir threshold"
+  echo "  dir: Directory to check (e.g., /)"
+  echo "  threshold: Percentage threshold (e.g., 60)"
 }
 
-E_NOARGS=85
-wh_regex="T[A-Z0-9]*\/B[A-Z0-9]*\/[a-zA-Z0-9]*"
-number_regex='^[0-9]+$'
-if [ -z ${1+x} ] || [ -z ${2+x} ] || [ -z ${3+x} ]; then
-  usage
-  exit "$E_NOARGS"
-elif ! [[ $1 =~ $wh_regex ]]; then
-  echo "Webhook format invalid. Expected format $wh_regex"
-  usage
-  exit 1
-elif ! [[ $3 =~ $number_regex ]]; then
-  echo "Number expected. Received $3"
+# Validate arguments
+if [ $# -lt 2 ]; then
   usage
   exit 1
 fi
 
-#./testvolumequota $(cat token) / 60
-wh=$1
-dir=$2
-threshold=$3
+dir=$1
+threshold=$2
 
+# Validate threshold is a number
+if ! [[ $threshold =~ ^[0-9]+$ ]]; then
+  echo "Error: Threshold must be a number. Received: $threshold"
+  usage
+  exit 1
+fi
+
+# Function to check disk usage against threshold
 testquota() {
-	local DIR=$1
-	local THRESHOLD=$2
-	local CURRENT=$(df $DIR | grep $DIR | awk '{ print $5}' | sed 's/%//g')
-	if [ "$CURRENT" -gt "$THRESHOLD" ] ; then
-	  echo "${CURRENT}"
-	else
-	  echo "OK"
-	fi
+  local DIR=$1
+  local THRESHOLD=$2
+  local CURRENT=$(df $DIR | grep $DIR | awk '{ print $5}' | sed 's/%//g')
+  
+  if [ "$CURRENT" -gt "$THRESHOLD" ]; then
+    echo "ALERT: Disk volume $DIR is at ${CURRENT}% capacity (threshold: ${THRESHOLD}%)"
+    echo ""
+    echo "Disk usage details:"
+    df -h
+    exit 1
+  else
+    echo "OK: Disk volume $DIR is at ${CURRENT}% capacity (threshold: ${THRESHOLD}%)"
+    echo ""
+    echo "Disk usage details:"
+    df -h
+    exit 0
+  fi
 }
 
-result=$(testquota $dir $threshold)
-
-slack_wh="https://hooks.slack.com/services/$wh"
-
-notokfile=${dir//\//_}_notok
-if [ "$result" != "OK" ]; then
-  echo $(date) - $(basename "$0") - Disk volume $dir over ${threshold}% capacity
-  if ! test -f "${notokfile}"; then
-    echo $(date) - $(basename "$0") - Calling webhook 'curl -X POST -H "Content-type: application/json" --data "{\"text\":\"Your server \`$(hostname)\` is currently at \`${result}%\` disk capacity.\n \`\`\`$(df -h)\`\`\` \"}" ${slack_wh}'
-    echo $(date) - $(basename "$0") - Webhook result: $(curl -s -X POST -H 'Content-type: application/json' --data "{\"text\":\"\`$(hostname)\` is currently at \`${result}%\` disk capacity.\n \`\`\`$(df -h)\`\`\` \"}" ${slack_wh})
-    touch ${notokfile}
-  fi
-elif test -f "${notokfile}"; then
-  echo $(date) - $(basename "$0") - Disk volume $dir is again under ${threshold}% capacity
-  echo $(date) - $(basename "$0") - Disk volume again under quota: 'curl -s -X POST -H 'Content-type: application/json' --data "{\"text\":\"\`$(hostname)\` - \`${dir}\` disk quota is again under \`${threshold}%\` \n \"}" $slack_wh)'
-  echo $(date) - $(basename "$0") - Webhook result: $(curl -s -X POST -H 'Content-type: application/json' --data "{\"text\":\"\`$(hostname)\` - \`${dir}\` disk quota is again under \`${threshold}%\` \n \"}" $slack_wh)
-  rm ${notokfile}
-fi
+# Run the test
+testquota "$dir" "$threshold"
