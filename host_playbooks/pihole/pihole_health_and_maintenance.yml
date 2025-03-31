@@ -1,0 +1,148 @@
+---
+# Pi-hole Health Checks and Maintenance Tasks
+# This playbook sets up both health monitoring and scheduled maintenance tasks for the Pi-hole host
+
+- name: Setup Pi-hole health checks and maintenance tasks
+  hosts: all
+  tasks:
+    - name: Ensure required variables are defined
+      ansible.builtin.fail:
+        msg: "Required variable '{{ item }}' is not defined"
+      when: item is not defined
+      with_items:
+        - logs_dir
+        - scripts_dir
+        - logging_token
+        - alert_token
+
+# ============================================================
+# HEALTH CHECKS - Service and functionality monitoring
+# ============================================================
+
+# Pi-hole DNS service health monitoring
+- name: Import deploy monitoring for Pi-hole FTL service
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "pihole_ftl_service"
+    monitoring_command: |
+      if systemctl is-active --quiet pihole-FTL; then
+        echo "✅ Pi-hole FTL service is running"
+      else
+        echo "❌ Pi-hole FTL service is not running - attempting restart"
+        sudo systemctl restart pihole-FTL
+        sleep 5
+        if systemctl is-active --quiet pihole-FTL; then
+          echo "✅ Pi-hole FTL service was successfully restarted"
+        else
+          echo "❌ Failed to restart Pi-hole FTL service"
+          exit 1
+        fi
+      fi
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# DNS resolution functionality check
+- name: Import deploy monitoring for DNS resolution
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "dns_resolution_check"
+    monitoring_command: |
+      if dig +short +timeout=5 +tries=1 @127.0.0.1 google.com > /dev/null; then
+        echo "✅ DNS resolution working correctly"
+      else
+        echo "❌ DNS resolution failed - attempting to restart Pi-hole FTL"
+        sudo systemctl restart pihole-FTL
+        sleep 5
+        if dig +short +timeout=5 +tries=1 @127.0.0.1 google.com > /dev/null; then
+          echo "✅ DNS resolution fixed after restarting Pi-hole FTL"
+        else
+          echo "❌ DNS resolution still failing after restart"
+          exit 1
+        fi
+      fi
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Unifi controller service health check
+- name: Import deploy monitoring for Unifi service check
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "unifi_service_check"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/check_unifi_service.sh"
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Unifi controller web interface accessibility check
+- name: Import deploy monitoring for Unifi controller web interface
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "unifi_web_interface"
+    monitoring_command: |
+      if curl -s -f -k -o /dev/null --max-time 10 https://localhost:8443/manage/account/login?redirect=%2Fmanage; then
+        echo "✅ Unifi controller web interface is accessible"
+      else
+        echo "❌ Unifi controller web interface is not accessible - attempting to restart service"
+        sudo systemctl restart unifi
+        sleep 30
+        if curl -s -f -k -o /dev/null --max-time 10 https://localhost:8443/manage/account/login?redirect=%2Fmanage; then
+          echo "✅ Unifi controller web interface is now accessible after restart"
+        else
+          echo "❌ Unifi controller web interface is still not accessible after restart"
+          exit 1
+        fi
+      fi
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# ============================================================
+# MAINTENANCE TASKS - Scheduled operations and backups
+# ============================================================
+
+# DNS check and change (maintenance task)
+- name: Import deploy monitoring for DNS check and change
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "dns_check_and_change"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/dns_checkandchange"
+    cron_minute: "*/15"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Pi-hole backup (scheduled task)
+- name: Import deploy monitoring for Pihole backup
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "pihole_backup"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/backup_pihole"
+    monitoring_script_args: "{{ logging_token }} {{ alert_token }} 0x0.st {{ git_mail }}"
+    cron_minute: "0"
+    cron_hour: "4"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Unifi backup (scheduled task)
+- name: Import deploy monitoring for Unifi backup
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "unifi_backup"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/backup_unifi"
+    monitoring_script_args: "{{ logging_token }} {{ alert_token }} 0x0.st {{ git_mail }}"
+    cron_minute: "0"
+    cron_hour: "3"
+    cron_day: "*/2"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Pi-hole update (scheduled task)
+- name: Import deploy monitoring for Pi-hole update
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "pihole_update"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/pihole_update.sh"
+    special_time: "monthly"
+    heartbeat_interval: "always"
+    notify_fixed: "true"

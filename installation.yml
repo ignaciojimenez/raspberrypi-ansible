@@ -48,7 +48,7 @@
 - name: Import script creation playbook
   ansible.builtin.import_playbook: common_playbooks/create_and_move_scripts.yml
 
-- name: Import monitoring setup playbook
+- name: Import base monitoring setup playbook
   ansible.builtin.import_playbook: common_playbooks/setup_monitoring.yml
 
 - name: Import base software installation playbook
@@ -56,8 +56,6 @@
 
 - name: Import public gpg key from playbook
   ansible.builtin.import_playbook: common_playbooks/import_gpg_github.yml
-
-
 
 - name: Import device specific playbook
   ansible.builtin.import_playbook: "host_playbooks/{{ host }}.yml"

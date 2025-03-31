@@ -3,29 +3,24 @@
 - name: Setup monitoring infrastructure
   hosts: all
   tasks:
+    - name: Ensure required variables are defined
+      ansible.builtin.fail:
+        msg: "Required variable '{{ item }}' is not defined"
+      when: item is not defined
+      with_items:
+        - logs_dir
+        - scripts_dir
+        - logging_token
+        - alert_token
+        - host
+
     - name: Creates log dir
       ansible.builtin.file:
         path: "{{ logs_dir }}"
         state: directory
         mode: '0755'
-
-    - name: Cronjob for volume quota checks
-      vars:
-        dir: "/"
-        threshold: "60"
-      ansible.builtin.cron:
-        name: "volume_quota_monitoring"
-        special_time: "hourly"
-        job: >-
-          {{ scripts_dir }}/enhanced_monitoring_wrapper
-          --heartbeat-interval=daily
-          --notify-fixed=true
-          {{ logging_token }}
-          {{ alert_token }}
-          {{ scripts_dir }}/testvolumequota
-          {{ dir }} {{ threshold }}
-          >> {{ logs_dir }}/root_quota_monitoring.log 2>&1
-
+    
+    # Create log rotation file
     - name: Create log rotation file
       become: true
       ansible.builtin.copy:
@@ -43,3 +38,37 @@
         mode: '0644'
         owner: root
         group: root
+
+    # Copy common monitoring script
+    - name: Copy enhanced monitoring wrapper
+      ansible.builtin.copy:
+        src: "{{ inventory_dir }}/common_scripts/enhanced_monitoring_wrapper"
+        dest: "{{ scripts_dir }}/enhanced_monitoring_wrapper"
+        mode: '0755'
+
+    # Install required packages for monitoring
+    - name: Install required packages for monitoring
+      become: true
+      ansible.builtin.apt:
+        name:
+          - jq
+          - curl
+          - bc
+        state: present
+
+    # STANDARD SYSTEM CHECKS - Consolidated into a single script
+    - name: Copy system health check script
+      ansible.builtin.copy:
+        src: "{{ inventory_dir }}/common_scripts/system_health_check.sh"
+        dest: "{{ scripts_dir }}/system_health_check.sh"
+        mode: '0755'
+
+- name: Import deploy monitoring for consolidated system health checks
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "system_health_check"
+    monitoring_script_src: "{{ inventory_dir }}/common_scripts/system_health_check.sh"
+    monitoring_script_args: "--heartbeat-interval=daily --notify-fixed=true"
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
