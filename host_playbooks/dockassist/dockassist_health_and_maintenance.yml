@@ -1,0 +1,130 @@
+---
+# Dockassist Health Checks and Maintenance Tasks
+# This playbook sets up both health monitoring and scheduled maintenance tasks for the Dockassist host
+
+- name: Setup Dockassist health checks and maintenance tasks
+  hosts: all
+  tasks:
+    - name: Ensure required variables are defined
+      ansible.builtin.fail:
+        msg: "Required variable '{{ item }}' is not defined"
+      when: item is not defined
+      with_items:
+        - logs_dir
+        - scripts_dir
+        - logging_token
+        - alert_token
+
+# ============================================================
+# HEALTH CHECKS - Service and functionality monitoring
+# ============================================================
+
+# Docker service health check
+- name: Import deploy monitoring for Docker service
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "docker_service_check"
+    monitoring_command: |
+      if systemctl is-active --quiet docker; then
+        echo "✅ Docker service is running"
+      else
+        echo "❌ Docker service is not running - attempting restart"
+        sudo systemctl restart docker
+        sleep 5
+        if systemctl is-active --quiet docker; then
+          echo "✅ Docker service was successfully restarted"
+        else
+          echo "❌ Failed to restart Docker service"
+          exit 1
+        fi
+      fi
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Home Assistant container health check
+- name: Import deploy monitoring for Home Assistant container
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "homeassistant_container_check"
+    monitoring_script_src: "{{ inventory_dir }}/common_scripts/testrunningcontainer"
+    monitoring_script_args: "{{ alert_token }} home-assistant"
+    cron_minute: "*/10"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Home Assistant web interface check
+- name: Import deploy monitoring for Home Assistant web interface
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "homeassistant_web_interface"
+    monitoring_command: |
+      if curl -s -f -k -o /dev/null --max-time 10 http://localhost:8123; then
+        echo "✅ Home Assistant web interface is accessible"
+      else
+        echo "❌ Home Assistant web interface is not accessible - attempting to restart container"
+        docker restart home-assistant
+        sleep 30
+        if curl -s -f -k -o /dev/null --max-time 10 http://localhost:8123; then
+          echo "✅ Home Assistant web interface is now accessible after restart"
+        else
+          echo "❌ Home Assistant web interface is still not accessible after restart"
+          exit 1
+        fi
+      fi
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# ============================================================
+# MAINTENANCE TASKS - Scheduled operations and backups
+# ============================================================
+
+# Home Assistant update (scheduled task)
+- name: Import deploy monitoring for Home Assistant update
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "homeassistant_update"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/update_ha"
+    cron_minute: "0"
+    cron_hour: "3"
+    cron_day: "10"
+    heartbeat_interval: "always"
+    notify_fixed: "true"
+
+# Home Assistant backup (scheduled task)
+- name: Import deploy monitoring for Home Assistant backup
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "homeassistant_backup"
+    monitoring_script_src: "{{ inventory_dir }}/common_scripts/backup_last_mod"
+    monitoring_script_args: "{{ alert_token }} 0x0.st /home/{{ ansible_user_id }}/homeassistant/backups/ {{ git_mail }}"
+    cron_minute: "0"
+    cron_hour: "4"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Clean old backups (scheduled task)
+- name: Import deploy monitoring for cleaning old backups
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "clean_old_backups"
+    monitoring_command: |
+      cd /home/{{ ansible_user_id }}/homeassistant/backups/ && \
+      ls -A1t | tail -n +8 | xargs rm -v
+    special_time: "weekly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Docker system prune (scheduled task)
+- name: Import deploy monitoring for Docker system prune
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "docker_system_prune"
+    monitoring_command: |
+      /usr/bin/docker system prune -a -f
+    cron_minute: "0"
+    cron_hour: "0"
+    cron_day: "0"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
