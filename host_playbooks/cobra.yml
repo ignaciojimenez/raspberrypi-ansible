@@ -51,32 +51,9 @@
 - name: Load samba installation and config playbook
   ansible.builtin.import_playbook: "{{ host }}/install_samba.yml"
 
-- name: Adding cobra specific crons
-  hosts: all
-  tasks:
-  # Creating cronjobs
-  - name: Cronjob for hourly volume quota checks
-    vars:
-      dir: "{{ mount_path }}"
-      threshold: "95"
-    ansible.builtin.cron:
-      name: "volume quota"
-      special_time: "hourly"
-      job: "/bin/bash {{ scripts_dir }}/testvolumequota {{ alert_token }} {{ dir }} {{ threshold }} >> {{ logs_dir }}/quota_{{ dir | replace('/', '_') }}.log 2>&1"
-  - name: Cronjob for hourly mountpoint checks
-    vars:
-      dir: "{{ mount_path }}"
-    ansible.builtin.cron:
-      name: "mount check"
-      special_time: "hourly"
-      job: "/bin/bash {{ scripts_dir }}/testvolumemount {{ alert_token }} {{ dir }} >> {{ logs_dir }}/mount_{{ dir | replace('/', '_') }}.log 2>&1"
-  - name: Cronjob for hourly vpn connection check
-    vars:
-      ip_gateway: "10.64.0.1"
-    ansible.builtin.cron:
-      name: "mount check"
-      special_time: "hourly"
-      job: "/bin/bash {{ scripts_dir }}/testvpn {{ alert_token }} {{ ip_gateway }} >> {{ logs_dir }}/vpn_status.log 2>&1"
+# Import host-specific health checks and maintenance tasks for cobra
+- name: Import cobra health checks and maintenance tasks
+  ansible.builtin.import_playbook: "{{host}}/cobra_health_and_maintenance.yml"
 
 ## TODOS
 # expand tmpfs to be able to perform backups - IF POSSIBLE AND REQUIRED

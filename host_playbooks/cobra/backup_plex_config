@@ -1,0 +1,159 @@
+#!/bin/bash
+# 
+# Script to backup Plex Media Server configuration files
+# Backs up only essential configuration files, not the entire library
+# Uploads the backup to a file sharing service and removes the local copy
+
+set -e          # stop on errors
+set -u          # stop on unset variables
+set -o pipefail # stop on pipe failures
+
+# Colors for terminal output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
+
+log_msg() {
+  echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+if [ "$#" -lt 4 ]; then
+  echo "Usage: $0 <logging_token> <alert_token> <upload_service> <email>"
+  exit 1
+fi
+
+LOGGING_TOKEN="$1"
+ALERT_TOKEN="$2"
+UPLOAD_SERVICE="$3"
+EMAIL="$4"
+
+# Setup backup paths
+HOSTNAME=$(hostname)
+BACKUP_DIR="/tmp/plex_config_backup_$(date +%Y%m%d_%H%M%S)"
+BACKUP_FILE="/tmp/plex_config_backup_${HOSTNAME}_$(date +%Y%m%d_%H%M%S).tar.gz"
+PLEX_BASE_DIR="/var/lib/plexmediaserver/Library"
+
+log_msg "${GREEN}Starting Plex Media Server configuration backup...${NC}"
+
+# Only back up essential configuration files, not the entire library
+# These are the critical files that contain user preferences and server settings
+ESSENTIAL_DIRS=(
+  "Application Support/Plex Media Server/Preferences.xml"
+  "Application Support/Plex Media Server/Plug-in Support/Preferences"
+  "Application Support/Plex Media Server/Plug-ins"
+)
+
+# Create a temporary directory for the files
+mkdir -p "${BACKUP_DIR}" || {
+  log_msg "${RED}Error: Failed to create temp directory: ${BACKUP_DIR}${NC}"
+  exit 1
+}
+
+# Stop Plex to ensure consistent backup
+log_msg "Stopping Plex Media Server for consistent backup"
+sudo systemctl stop plexmediaserver || {
+  log_msg "${YELLOW}Warning: Failed to stop Plex Media Server${NC}"
+  # Continue anyway, but backup might not be consistent
+}
+
+# Copy essential files to temp directory maintaining directory structure
+log_msg "Copying essential configuration files"
+for DIR in "${ESSENTIAL_DIRS[@]}"; do
+  SOURCE="${PLEX_BASE_DIR}/${DIR}"
+  TARGET_DIR="${BACKUP_DIR}/$(dirname "${DIR}")"
+  
+  # Create target directory
+  mkdir -p "${TARGET_DIR}" || {
+    log_msg "${YELLOW}Warning: Failed to create directory: ${TARGET_DIR}${NC}"
+    continue
+  }
+  
+  # Copy files
+  if [ -e "${SOURCE}" ]; then
+    sudo cp -r "${SOURCE}" "${TARGET_DIR}/" || {
+      log_msg "${YELLOW}Warning: Failed to copy ${SOURCE}${NC}"
+    }
+    log_msg "Copied ${SOURCE}"
+  else
+    log_msg "${YELLOW}Warning: ${SOURCE} not found${NC}"
+  fi
+done
+
+# Change ownership so we can access the files
+sudo chown -R $(whoami):$(whoami) "${BACKUP_DIR}" || {
+  log_msg "${YELLOW}Warning: Failed to change ownership of temp directory${NC}"
+  # Continue anyway, but use sudo for tar command
+}
+
+# Create backup archive
+log_msg "Creating backup archive at ${BACKUP_FILE}"
+if [ -w "${BACKUP_DIR}" ]; then
+  tar -czf "${BACKUP_FILE}" -C "${BACKUP_DIR}" . || {
+    log_msg "${RED}Error: Failed to create archive${NC}"
+    sudo systemctl start plexmediaserver
+    exit 1
+  }
+else
+  # Fallback to using sudo for tar if ownership change failed
+  sudo tar -czf "${BACKUP_FILE}" -C "${BACKUP_DIR}" . || {
+    log_msg "${RED}Error: Failed to create archive${NC}"
+    sudo systemctl start plexmediaserver
+    exit 1
+  }
+  # Ensure we can read the archive
+  sudo chown $(whoami):$(whoami) "${BACKUP_FILE}" || {
+    log_msg "${YELLOW}Warning: Failed to change ownership of backup file${NC}"
+    # Continue anyway
+  }
+fi
+
+# Start Plex again
+log_msg "Restarting Plex Media Server"
+sudo systemctl start plexmediaserver || {
+  log_msg "${YELLOW}Warning: Failed to restart Plex Media Server${NC}"
+  # Continue anyway, but alert the user
+}
+
+# Clean up temp directory
+log_msg "Cleaning up temporary directory"
+rm -rf "${BACKUP_DIR}" || {
+  log_msg "${YELLOW}Warning: Failed to remove temp directory${NC}"
+  # Continue anyway
+}
+
+# Upload to file sharing service
+BACKUP_SIZE=$(du -h "${BACKUP_FILE}" | cut -f1)
+log_msg "Uploading backup (${BACKUP_SIZE}) to ${UPLOAD_SERVICE}"
+UPLOAD_URL=$(curl -F "file=@${BACKUP_FILE}" "${UPLOAD_SERVICE}" 2>/dev/null)
+
+if [ -n "${UPLOAD_URL}" ]; then
+  # Send success notification with the URL using logging token
+  webhook_hook="https://hooks.slack.com/services/${LOGGING_TOKEN}"
+  hostname_info=$(hostname)
+  content="{\"text\":\"\`${hostname_info}\` - Plex configuration backup completed (${BACKUP_SIZE}). \nDownload: ${UPLOAD_URL}\"}"
+  
+  curl -s -X POST -H 'Content-type: application/json' --data "${content}" "${webhook_hook}"
+  
+  log_msg "${GREEN}Backup completed and notification sent. URL: ${UPLOAD_URL}${NC}"
+  
+  # Delete the local backup file since it's now uploaded
+  log_msg "Removing local backup file"
+  rm -f "${BACKUP_FILE}" || {
+    log_msg "${YELLOW}Warning: Failed to remove local backup file${NC}"
+    # Continue anyway
+  }
+  
+  exit 0
+else
+  log_msg "${RED}Failed to upload backup file${NC}"
+  
+  # Send failure notification using alert token
+  alert_hook="https://hooks.slack.com/services/${ALERT_TOKEN}"
+  hostname_info=$(hostname)
+  content="{\"text\":\"\`${hostname_info}\` - Plex configuration backup failed to upload. Check logs.\"}"
+  
+  curl -s -X POST -H 'Content-type: application/json' --data "${content}" "${alert_hook}"
+  
+  exit 1
+fi

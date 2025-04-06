@@ -1,0 +1,98 @@
+---
+# HiFi Pi Health Checks and Maintenance Tasks
+# This playbook sets up both health monitoring and scheduled maintenance tasks for the HiFi Pi host
+
+- name: Setup HiFi Pi health checks and maintenance tasks
+  hosts: all
+  tasks:
+    - name: Ensure required variables are defined
+      ansible.builtin.fail:
+        msg: "Required variable '{{ item }}' is not defined"
+      when: item is not defined
+      with_items:
+        - logs_dir
+        - scripts_dir
+        - logging_token
+        - alert_token
+        
+    # Copy all monitoring scripts to the scripts directory
+    - name: Copy monitoring scripts
+      ansible.builtin.copy:
+        src: "{{ inventory_dir }}/host_playbooks/{{host}}/{{ item }}"
+        dest: "{{ scripts_dir }}/"
+        mode: '0755'
+      with_items:
+        - check_shairport_service.sh
+        - check_raspotify_service.sh
+        - check_mpd_service.sh
+        - check_audio_output.sh
+        - check_avahi_daemon.sh
+        - restart_audio_services.sh
+
+# ============================================================
+# HEALTH CHECKS - Service and functionality monitoring
+# ============================================================
+
+# Shairport-sync service health check
+- name: Import deploy monitoring for Shairport-sync service
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "shairport_service_check"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/check_shairport_service.sh"
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Raspotify service health check
+- name: Import deploy monitoring for Raspotify service
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "raspotify_service_check"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/check_raspotify_service.sh"
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# MPD service health check
+- name: Import deploy monitoring for MPD service
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "mpd_service_check"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/check_mpd_service.sh"
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Audio output check
+- name: Import deploy monitoring for audio output
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "audio_output_check"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/check_audio_output.sh"
+    special_time: "daily"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Avahi daemon check (for mDNS/Zeroconf discovery)
+- name: Import deploy monitoring for Avahi daemon
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "avahi_daemon_check"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/check_avahi_daemon.sh"
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# ============================================================
+# MAINTENANCE TASKS - Scheduled operations and updates
+# ============================================================
+
+# Audio services restart (weekly maintenance)
+- name: Import deploy monitoring for weekly audio services restart
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "audio_services_restart"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/restart_audio_services.sh"
+    special_time: "weekly"
+    heartbeat_interval: "weekly"
+    notify_fixed: "false"

@@ -7,3 +7,7 @@
 
 - name: Install mpd
   ansible.builtin.import_playbook: "{{host}}/mpd_install.yml"
+
+# Import host-specific health checks and maintenance tasks for hifipi
+- name: Import hifipi health checks and maintenance tasks
+  ansible.builtin.import_playbook: "{{host}}/hifipi_health_and_maintenance.yml"

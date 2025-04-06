@@ -1,0 +1,137 @@
+---
+# Cobra Health Checks and Maintenance Tasks
+# This playbook sets up both health monitoring and scheduled maintenance tasks for the Cobra host
+
+- name: Setup Cobra health checks and maintenance tasks
+  hosts: all
+  tasks:
+    - name: Ensure required variables are defined
+      ansible.builtin.fail:
+        msg: "Required variable '{{ item }}' is not defined"
+      when: item is not defined
+      with_items:
+        - logs_dir
+        - scripts_dir
+        - logging_token
+        - alert_token
+        - mount_path
+        
+    # Copy all monitoring scripts to the scripts directory
+    - name: Copy monitoring scripts
+      ansible.builtin.copy:
+        src: "{{ inventory_dir }}/host_playbooks/{{host}}/{{ item }}"
+        dest: "{{ scripts_dir }}/"
+        mode: '0755'
+      with_items:
+        - check_plex_service.sh
+        - check_transmission_service.sh
+        - check_vpn_connection.sh
+        - check_samba_service.sh
+        - backup_plex_config
+        - clean_old_torrents
+
+# ============================================================
+# HEALTH CHECKS - Service and functionality monitoring
+# ============================================================
+
+# Plex Media Server health check
+- name: Import deploy monitoring for Plex Media Server
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "plex_service_check"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/check_plex_service.sh"
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Transmission service health check
+- name: Import deploy monitoring for Transmission
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "transmission_service_check"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/check_transmission_service.sh"
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# NTFS Mount check
+- name: Import deploy monitoring for NTFS mount
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "ntfs_mount_check"
+    monitoring_script_src: "{{ inventory_dir }}/common_scripts/testvolumemount"
+    monitoring_script_args: "{{ alert_token }} {{ mount_path }}"
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# VPN Connection check
+- name: Import deploy monitoring for VPN connection
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "vpn_connection_check"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/check_vpn_connection.sh"
+    monitoring_script_args: "10.64.0.1"
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Samba service check
+- name: Import deploy monitoring for Samba service
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "samba_service_check"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/check_samba_service.sh"
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# Root partition disk space check
+- name: Import deploy monitoring for root partition disk space
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "root_disk_space_check"
+    monitoring_script_src: "{{ inventory_dir }}/common_scripts/testvolumequota"
+    monitoring_script_args: "/ 90"
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# NTFS mount disk space check
+- name: Import deploy monitoring for NTFS mount disk space
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "ntfs_disk_space_check"
+    monitoring_script_src: "{{ inventory_dir }}/common_scripts/testvolumequota"
+    monitoring_script_args: "{{ mount_path }} 95"
+    special_time: "hourly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
+
+# ============================================================
+# MAINTENANCE TASKS - Scheduled operations and backups
+# ============================================================
+
+# Plex Media Server configuration backup
+- name: Import deploy monitoring for Plex configuration backup
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "plex_config_backup"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/backup_plex_config"
+    monitoring_script_args: "{{ logging_token }} {{ alert_token }} 0x0.st {{ git_mail }}"
+    cron_minute: "0"
+    cron_hour: "4"
+    cron_day: "*/7"  # Weekly backup
+    heartbeat_interval: "always"
+    notify_fixed: "true"
+
+# Clean old torrents
+- name: Import deploy monitoring for cleaning old torrents
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "clean_old_torrents"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/clean_old_torrents"
+    monitoring_script_args: "{{ mount_path }}/Descargas/completed"
+    special_time: "weekly"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
