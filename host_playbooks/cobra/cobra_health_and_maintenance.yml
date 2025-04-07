@@ -60,7 +60,7 @@
   vars:
     monitoring_name: "ntfs_mount_check"
     monitoring_script_src: "{{ inventory_dir }}/common_scripts/testvolumemount"
-    monitoring_script_args: "{{ alert_token }} {{ mount_path }}"
+    monitoring_script_args: "{{ mount_path }}"
     special_time: "hourly"
     heartbeat_interval: "daily"
     notify_fixed: "true"
@@ -86,16 +86,8 @@
     heartbeat_interval: "daily"
     notify_fixed: "true"
 
-# Root partition disk space check
-- name: Import deploy monitoring for root partition disk space
-  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
-  vars:
-    monitoring_name: "root_disk_space_check"
-    monitoring_script_src: "{{ inventory_dir }}/common_scripts/testvolumequota"
-    monitoring_script_args: "/ 90"
-    special_time: "hourly"
-    heartbeat_interval: "daily"
-    notify_fixed: "true"
+# Root partition disk space check is handled by system_health_check.sh
+# No need for a separate check here
 
 # NTFS mount disk space check
 - name: Import deploy monitoring for NTFS mount disk space
