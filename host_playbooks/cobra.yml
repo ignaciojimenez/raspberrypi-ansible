@@ -15,7 +15,9 @@
 - name: Load ntfs installation and config playbook
   ansible.builtin.import_playbook: "{{ host }}/mount_ntfs.yml"     
   vars:
-    UUID: "9E783B49783B1F87"
+    # OLD NTFS HDD
+    # UUID: "9E783B49783B1F87"
+    UUID: "67F4-15D5"
 
 - name: Load transmission installation and config playbook
   ansible.builtin.import_playbook: "{{ host }}/install_transmission.yml"
