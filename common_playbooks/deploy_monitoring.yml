@@ -94,6 +94,7 @@
           {{ scripts_dir }}/enhanced_monitoring_wrapper
           --heartbeat-interval={{ heartbeat_interval | default('daily') }}
           --notify-fixed={{ notify_fixed | default('true') }}
+          --monitoring-name={{ monitoring_name }}
           {{ logging_token }}
           {{ alert_token }}
           {{ monitoring_script_path }}
@@ -113,6 +114,7 @@
           {{ scripts_dir }}/enhanced_monitoring_wrapper
           --heartbeat-interval={{ heartbeat_interval | default('daily') }}
           --notify-fixed={{ notify_fixed | default('true') }}
+          --monitoring-name={{ monitoring_name }}
           {{ logging_token }}
           {{ alert_token }}
           {{ monitoring_script_path }}

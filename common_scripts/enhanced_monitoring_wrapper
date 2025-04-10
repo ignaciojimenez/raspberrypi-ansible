@@ -9,6 +9,7 @@
 #   --heartbeat-interval=daily|hourly|always  How often to send success heartbeats (default: daily)
 #   --state-file=/path/to/state.json          Custom state file location (default: in logs_dir)
 #   --notify-fixed=true|false                 Whether to notify on self-healing (default: true)
+#   --monitoring-name=name                    Name of the monitoring task (used for state file if provided)
 
 # Don't use set -e here as we want to capture script failures
 set -u          # stop on unset variables
@@ -47,6 +48,7 @@ usage() {
   echo "  --heartbeat-interval=daily|hourly|always  How often to send success heartbeats (default: daily)"
   echo "  --state-file=/path/to/state.json          Custom state file location (default: in logs_dir)"
   echo "  --notify-fixed=true|false                 Whether to notify on self-healing (default: true)"
+  echo "  --monitoring-name=name                    Name of the monitoring task (used for state file if provided)"
   echo ""
   echo "  monitor_webhook_id: Slack webhook ID for regular monitoring notifications"
   echo "  alert_webhook_id: Optional Slack webhook ID for error alerts (failures only)"
@@ -197,6 +199,7 @@ send_slack_notification() {
 HEARTBEAT_INTERVAL="daily"
 NOTIFY_FIXED="true"
 STATE_FILE=""
+MONITORING_NAME=""
 
 while [[ "$1" == --* ]]; do
   case "$1" in
@@ -210,6 +213,10 @@ while [[ "$1" == --* ]]; do
       ;;
     --notify-fixed=*)
       NOTIFY_FIXED="${1#*=}"
+      shift
+      ;;
+    --monitoring-name=*)
+      MONITORING_NAME="${1#*=}"
       shift
       ;;
     --help)
@@ -286,15 +293,15 @@ fi
 script_path_sanitized=$(echo "$script_path" | sed "s/${wh_regex}/SLACK_TOKEN/g")
 script_args_sanitized=$(echo "$script_args" | sed "s/${wh_regex}/SLACK_TOKEN/g")
 
-# Get script name for state file
-SCRIPT_NAME=$(basename "$script_path")
+# Get name for state file (prefer monitoring name if provided, otherwise use script name)
+STATE_NAME="${MONITORING_NAME:-$(basename "$script_path")}"
 if [ -z "$STATE_FILE" ]; then
   # Get username in a way that works in cron jobs (where $USER might be unset)
   CURRENT_USER="${USER:-$(whoami)}"
   # Fallback chain: use $SUDO_USER if available (for sudo commands), then $CURRENT_USER, then 'nobody'
   EFFECTIVE_USER="${SUDO_USER:-${CURRENT_USER:-nobody}}"
   STATE_DIR="${logs_dir:-/home/${EFFECTIVE_USER}/.log}"
-  STATE_FILE="$STATE_DIR/${SCRIPT_NAME}_state.json"
+  STATE_FILE="$STATE_DIR/${STATE_NAME}.json"
 fi
 
 # Initialize state file if it doesn't exist
