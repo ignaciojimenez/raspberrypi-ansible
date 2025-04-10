@@ -60,7 +60,7 @@
   vars:
     monitoring_name: "ntfs_mount_check"
     monitoring_script_src: "{{ inventory_dir }}/common_scripts/testvolumemount"
-    monitoring_script_args: "{{ mount_path }}"
+    monitoring_script_args: "{{ alert_token }} {{ mount_path }}"
     special_time: "hourly"
     heartbeat_interval: "daily"
     notify_fixed: "true"
