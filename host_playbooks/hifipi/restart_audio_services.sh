@@ -21,7 +21,8 @@ sudo systemctl restart raspotify
 echo "Raspotify restarted"
 
 # Reset audio volume to 100%
-amixer sset 'PCM',0 100%
+amixer sset 'Digital',0 100%
+amixer sset 'Analogue',0 100%
 alsactl store
 echo "Audio volume reset to 100%"
 

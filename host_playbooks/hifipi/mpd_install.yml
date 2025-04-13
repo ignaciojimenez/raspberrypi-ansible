@@ -34,7 +34,7 @@
       ignore_errors: true
       block:
         - name: Take volume to max
-          ansible.builtin.command: amixer sset 'PCM',0 100%
+          ansible.builtin.command: amixer sset 'Analogue',0 100%
           changed_when: false
         - name: Alsactl store mixer config
           ansible.builtin.command: alsactl store
