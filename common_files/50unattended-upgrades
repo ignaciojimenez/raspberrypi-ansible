@@ -3,8 +3,19 @@
 // Based on https://gist.github.com/anatolebeuzon/98ff195f3375e8ca621e7df3955b4f23
 
 Unattended-Upgrade::Origins-Pattern {
+        // Raspbian and Raspberry Pi Foundation repositories
         "origin=Raspbian,codename=${distro_codename},label=Raspbian";
         "origin=Raspberry Pi Foundation,codename=${distro_codename},label=Raspberry Pi Foundation";
+        
+        // Debian security and updates repositories
+        "origin=Debian,codename=${distro_codename},label=Debian-Security";
+        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+        "origin=Debian,codename=${distro_codename}-updates,label=Debian";
+        
+        // For systems running oldstable
+        "origin=Debian,codename=oldstable,label=Debian-Security";
+        "origin=Debian,codename=oldstable-security,label=Debian-Security";
+        "origin=Debian,codename=oldstable-updates,label=Debian";
 };
 
 // Automatically reboot *WITHOUT CONFIRMATION* if
