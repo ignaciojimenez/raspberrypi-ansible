@@ -8,6 +8,12 @@ set -o pipefail # stop on pipe failures
 
 echo "[$(date)] home assistant update started"
 docker pull ghcr.io/home-assistant/home-assistant:stable
-source stop_run_ha
+
+# Get the directory where this script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Source the stop_run_ha script using the absolute path
+source "$SCRIPT_DIR/stop_run_ha"
+
 # to check next time this fails -- see if mounted volume is actually mounted
 # docker inspect -f '{{ .Mounts }}' home-assistant
