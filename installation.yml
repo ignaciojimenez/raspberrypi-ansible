@@ -60,6 +60,10 @@
 - name: Import device specific playbook
   ansible.builtin.import_playbook: "host_playbooks/{{ host }}.yml"
 
+# Add this to installation.yml after the other imports
+- name: Import auto-upgrades playbook
+  ansible.builtin.import_playbook: common_playbooks/enable_auto_upgrades.yml
+
 - name: Import full upgrade and clean playbook
   ansible.builtin.import_playbook: common_playbooks/update_upgrade_clean.yml
 

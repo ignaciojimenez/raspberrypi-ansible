@@ -5,19 +5,46 @@
     apt_config_dir: "/etc/apt/apt.conf.d"
   become: true
   tasks:
-    - name: Install unattended-upgrades
+    - name: Install unattended-upgrades and related packages
       ansible.builtin.apt:
         pkg:
           - unattended-upgrades
+          - apt-listchanges
+        state: present
+        update_cache: true
+
     - name: Copy auto upgrade file
       ansible.builtin.copy:
         src: ../common_files/20auto-upgrades
         dest: "{{ apt_config_dir }}"
         mode: "0644"
         backup: true
+
     - name: Copy unattended upgrade file
       ansible.builtin.copy:
         src: ../common_files/50unattended-upgrades
         dest: "{{ apt_config_dir }}"
         mode: "0644"
         backup: true
+
+    - name: Enable unattended-upgrades service
+      ansible.builtin.systemd:
+        name: unattended-upgrades.service
+        enabled: true
+        state: started
+      ignore_errors: true  # Some older systems might not use systemd
+
+    - name: Verify configuration is active
+      ansible.builtin.command: dpkg-reconfigure -f noninteractive unattended-upgrades
+      failed_when: false
+
+    - name: Trigger initial update check
+      ansible.builtin.command: unattended-upgrade --dry-run
+      register: upgrade_check
+      changed_when: false
+      ignore_errors: true  # Don't fail if this doesn't work
+
+    - name: Show update check results
+      ansible.builtin.debug:
+        var: upgrade_check.stdout_lines
+      when: upgrade_check.stdout_lines is defined

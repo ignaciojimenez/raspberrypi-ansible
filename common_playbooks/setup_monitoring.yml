@@ -12,7 +12,7 @@
         - scripts_dir
         - logging_token
         - alert_token
-        - host
+        - ansible_hostname
 
     - name: Creates log dir
       ansible.builtin.file:
@@ -34,7 +34,7 @@
             notifempty
             create 644
           }
-        dest: /etc/logrotate.d/{{ host }}
+        dest: /etc/logrotate.d/{{ ansible_hostname }}
         mode: '0644'
         owner: root
         group: root

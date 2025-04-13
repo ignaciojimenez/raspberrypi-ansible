@@ -64,7 +64,7 @@
 
     - name: Copy enhanced monitoring wrapper
       ansible.builtin.copy:
-        src: "{{ inventory_dir }}/common_scripts/enhanced_monitoring_wrapper"
+        src: "{{ playbook_dir }}/../common_scripts/enhanced_monitoring_wrapper"
         dest: "{{ scripts_dir }}/enhanced_monitoring_wrapper"
         mode: '0755'
 
