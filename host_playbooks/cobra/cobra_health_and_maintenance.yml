@@ -123,7 +123,8 @@
   vars:
     monitoring_name: "clean_old_torrents"
     monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/clean_old_torrents"
-    monitoring_script_args: "{{ mount_path }}/Descargas/completed"
+    # TODO Check why setting this arg failed
+    monitoring_script_args: "{{ mount_path }}/Descargas/ready"
     special_time: "weekly"
     heartbeat_interval: "daily"
     notify_fixed: "true"
