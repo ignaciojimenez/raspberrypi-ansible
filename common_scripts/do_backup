@@ -75,11 +75,13 @@ else
   while [ $# -gt 0 ]; do
     case "$1" in
       --logging=*)
-        logging_wh="${1#*=}"
+        # Extract just the webhook token from the option string
+        logging_wh=${1#--logging=}
         shift
         ;;
       --alert=*)
-        alert_wh="${1#*=}"
+        # Extract just the webhook token from the option string
+        alert_wh=${1#--alert=}
         shift
         ;;
       --silent)
@@ -125,6 +127,15 @@ if ! test -e "$fileordir"; then
   log_msg "ERROR: Cannot access file|dir: $fileordir"
   usage
   exit 1
+fi
+
+# Fix webhook tokens if they still contain the option prefix
+if [[ $logging_wh == --logging=* ]]; then
+  logging_wh=${logging_wh#--logging=}
+fi
+
+if [[ $alert_wh == --alert=* ]]; then
+  alert_wh=${alert_wh#--alert=}
 fi
 
 # Validate webhook format if provided
@@ -268,7 +279,7 @@ if [ -n "${backup_url:-}" ]; then
     
     # Send success notification to Slack using logging webhook (unless in silent mode)
     if [ "$silent_mode" != "true" ]; then
-      logging_hook="https://hooks.slack.com/services/$logging_wh"
+      logging_hook="https://hooks.slack.com/services/${logging_wh}"
       hostname_info=$(hostname)
       content="{\"text\":\"\u2705 \`${hostname_info}\` - Backup successful \nFile: \`${fileordir}\`\nBackup URL: \`${backup_url}\`\nExpires: \`${expire_at}\` \n\"}"
       
@@ -298,7 +309,7 @@ else
     
     # Send failure notification to Slack using alert webhook (unless in silent mode)
     if [ "$silent_mode" != "true" ]; then
-      alert_hook="https://hooks.slack.com/services/$alert_wh"
+      alert_hook="https://hooks.slack.com/services/${alert_wh}"
       hostname_info=$(hostname)
       content="{\"text\":\"\u274c \`${hostname_info}\` - Backup failed \nFile: \`${fileordir}\`\nLocal backup: \`${fallback_path}\`\nError: \`${curl_error}\` \n\"}"
       

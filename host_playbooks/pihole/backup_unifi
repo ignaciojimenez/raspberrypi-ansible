@@ -46,11 +46,11 @@ else
   while [ $# -gt 0 ]; do
     case "$1" in
       --logging=*)
-        logging_token="${1#*=}"
+        logging_token="${1#--logging=}"
         shift
         ;;
       --alert=*)
-        alert_token="${1#*=}"
+        alert_token="${1#--alert=}"
         shift
         ;;
       --email=*)
@@ -72,6 +72,15 @@ else
         ;;
     esac
   done
+fi
+
+# Fix webhook tokens if they still contain the option prefix
+if [[ $logging_token == --logging=* ]]; then
+  logging_token=${logging_token#--logging=}
+fi
+
+if [[ $alert_token == --alert=* ]]; then
+  alert_token=${alert_token#--alert=}
 fi
 
 # Validate required arguments if not in silent mode

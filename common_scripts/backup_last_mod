@@ -111,6 +111,15 @@ if ! test -d "$folder"; then
   exit 1
 fi
 
+# Fix webhook tokens if they still contain the option prefix
+if [[ $logging_wh == --logging=* ]]; then
+  logging_wh=${logging_wh#--logging=}
+fi
+
+if [[ $alert_wh == --alert=* ]]; then
+  alert_wh=${alert_wh#--alert=}
+fi
+
 # Validate webhook format if provided
 if [ -n "$logging_wh" ] && ! [[ $logging_wh =~ $wh_regex ]]; then
   log_msg "${RED}ERROR: Logging webhook format invalid. Expected format $wh_regex. Received: $logging_wh${NC}"
@@ -190,7 +199,7 @@ else
   
   # Send alert to webhook using the alert webhook (unless in silent mode)
   if [ "$silent_mode" != "true" ]; then
-    alert_hook="https://hooks.slack.com/services/$alert_wh"
+    alert_hook="https://hooks.slack.com/services/${alert_wh}"
     hostname_info=$(hostname)
     content="{\"text\":\"\u274c \`${hostname_info}\` - Backup failed, latest file not retrieved. \n\file:\`${latest_file:-'None'}\` \n\folder:\`${folder}\` \n \"}"
     
