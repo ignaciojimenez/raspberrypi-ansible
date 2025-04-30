@@ -118,7 +118,7 @@
   vars:
     monitoring_name: "pihole_backup"
     monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/backup_pihole"
-    monitoring_script_args: "{{ logging_token }} {{ alert_token }} 0x0.st {{ git_mail }}"
+    monitoring_script_args: "--silent --email={{ git_mail }}"
     cron_minute: "0"
     cron_hour: "4"
     heartbeat_interval: "daily"
@@ -130,7 +130,7 @@
   vars:
     monitoring_name: "unifi_backup"
     monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/backup_unifi"
-    monitoring_script_args: "{{ logging_token }} {{ alert_token }} 0x0.st {{ git_mail }}"
+    monitoring_script_args: "--silent --email={{ git_mail }}"
     cron_minute: "0"
     cron_hour: "3"
     cron_day: "*/2"

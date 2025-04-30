@@ -16,15 +16,83 @@ log_msg() {
   echo -e "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
 }
 
-if [ "$#" -lt 4 ]; then
-  echo "Usage: $0 <logging_token> <alert_token> <upload_service> <email>"
-  exit 1
+# Parse command line arguments
+silent_mode=false
+logging_token=""
+alert_token=""
+email=""
+
+usage() {
+  echo "Usage: $0 [options]"
+  echo "Options:"
+  echo "  --logging=TOKEN   Slack webhook token for success notifications"
+  echo "  --alert=TOKEN     Slack webhook token for failure notifications"
+  echo "  --email=ADDRESS   Email address for GPG encryption"
+  echo "  --silent          Run in silent mode (no notifications, for use with monitoring wrapper)"
+  echo "  --help            Show this help message"
+  echo ""
+  echo "For backward compatibility: $0 <logging_token> <alert_token> <upload_service> <email>"
+}
+
+# Check if using the old argument format (for backward compatibility)
+if [ "$#" -ge 4 ] && [[ $1 == T* ]] && [[ $2 == T* ]]; then
+  # Old format
+  logging_token="$1"
+  alert_token="$2"
+  # Ignore upload_service parameter as we now use curlbin.ignacio.systems
+  email="$4"
+else
+  # New format with named options
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --logging=*)
+        logging_token="${1#--logging=}"
+        shift
+        ;;
+      --alert=*)
+        alert_token="${1#--alert=}"
+        shift
+        ;;
+      --email=*)
+        email="${1#--email=}"
+        shift
+        ;;
+      --silent)
+        silent_mode=true
+        shift
+        ;;
+      --help)
+        usage
+        exit 0
+        ;;
+      *)
+        log_msg "${RED}Unknown option: $1${NC}"
+        usage
+        exit 1
+        ;;
+    esac
+  done
 fi
 
-LOGGING_TOKEN="$1"
-ALERT_TOKEN="$2"
-UPLOAD_SERVICE="$3"
-EMAIL="$4"
+# Fix webhook tokens if they still contain the option prefix
+if [[ $logging_token == --logging=* ]]; then
+  logging_token=${logging_token#--logging=}
+fi
+
+if [[ $alert_token == --alert=* ]]; then
+  alert_token=${alert_token#--alert=}
+fi
+
+# Validate required arguments if not in silent mode
+if [ "$silent_mode" != "true" ] && ([ -z "$logging_token" ] || [ -z "$alert_token" ] || [ -z "$email" ]); then
+  log_msg "${RED}Error: Missing required arguments${NC}"
+  usage
+  exit 1
+elif [ "$silent_mode" == "true" ] && [ -z "$email" ]; then
+  log_msg "${RED}Error: Email address is required even in silent mode${NC}"
+  usage
+  exit 1
+fi
 
 BACKUP_DIR="/tmp/pihole_backup_$(date +%Y%m%d_%H%M%S)"
 BACKUP_FILE="/tmp/pihole_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
@@ -77,29 +145,53 @@ fi
 
 log_msg "${GREEN}Created backup archive: ${BACKUP_FILE}${NC}"
 
-# Upload to file sharing service
-log_msg "Uploading backup to ${UPLOAD_SERVICE}"
-UPLOAD_URL=$(curl -F "file=@${BACKUP_FILE}" "${UPLOAD_SERVICE}" 2>/dev/null)
+# Look for do_backup script in common locations
+DO_BACKUP_SCRIPT=""
+for path in "/home/$(whoami)/.scripts/do_backup" "/usr/local/bin/do_backup" "$(dirname "$0")/../common_scripts/do_backup"; do
+  if [ -f "$path" ]; then
+    DO_BACKUP_SCRIPT="$path"
+    break
+  fi
+done
 
-if [ -n "${UPLOAD_URL}" ]; then
-  # Send success notification with the URL using logging token
-  webhook_hook="https://hooks.slack.com/services/${LOGGING_TOKEN}"
-  hostname_info=$(hostname)
-  content="{\"text\":\"\`${hostname_info}\` - Pihole configuration backup completed. \nDownload: ${UPLOAD_URL}\"}"
-  
-  curl -s -X POST -H 'Content-type: application/json' --data "${content}" "${webhook_hook}"
-  
-  log_msg "${GREEN}Backup completed and notification sent. URL: ${UPLOAD_URL}${NC}"
-else
-  log_msg "${RED}Failed to upload backup file${NC}"
-  
-  # Send failure notification using alert token
-  alert_hook="https://hooks.slack.com/services/${ALERT_TOKEN}"
-  hostname_info=$(hostname)
-  content="{\"text\":\"\`${hostname_info}\` - Pihole configuration backup failed. Check logs.\"}"
-  
-  curl -s -X POST -H 'Content-type: application/json' --data "${content}" "${alert_hook}"
+# If do_backup script not found, try to find it in the repository structure
+if [ -z "$DO_BACKUP_SCRIPT" ]; then
+  # Try to find it relative to this script
+  repo_root=$(dirname "$(dirname "$0")")
+  if [ -f "$repo_root/common_scripts/do_backup" ]; then
+    DO_BACKUP_SCRIPT="$repo_root/common_scripts/do_backup"
+  fi
+fi
+
+# Require do_backup script to be available
+if [ -z "$DO_BACKUP_SCRIPT" ]; then
+  log_msg "${RED}ERROR: do_backup script not found. This script requires do_backup to be available.${NC}"
+  log_msg "${YELLOW}Please ensure do_backup is installed in one of the following locations:${NC}"
+  log_msg "  - /home/$(whoami)/.scripts/do_backup"
+  log_msg "  - /usr/local/bin/do_backup"
+  log_msg "  - $(dirname "$0")/../common_scripts/do_backup"
   exit 1
+fi
+
+log_msg "${GREEN}Using do_backup script: $DO_BACKUP_SCRIPT${NC}"
+
+# Use the appropriate do_backup command based on silent mode
+if [ "$silent_mode" == "true" ]; then
+  # In silent mode, we only need to pass the file and email
+  log_msg "Running do_backup in silent mode"
+  "$DO_BACKUP_SCRIPT" --silent "$BACKUP_FILE" "$email"
+else
+  # When not in silent mode, we need to provide the webhook tokens
+  log_msg "Running do_backup with notifications"
+  "$DO_BACKUP_SCRIPT" --logging="$logging_token" --alert="$alert_token" "$BACKUP_FILE" "$email"
+fi
+backup_exit_code=$?
+
+if [ $backup_exit_code -eq 0 ]; then
+  log_msg "${GREEN}Pihole configuration backup completed successfully${NC}"
+else
+  log_msg "${RED}Pihole configuration backup failed with exit code: ${backup_exit_code}${NC}"
+  exit $backup_exit_code
 fi
 
 # Clean up
