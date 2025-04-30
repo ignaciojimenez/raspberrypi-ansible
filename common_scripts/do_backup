@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Script to backup a file or dir to a remote location
+# Script to backup a file or dir to curlbin.ignacio.systems
 
 set -e          # stop on errors
 set -u          # stop on unset variables
@@ -13,9 +13,9 @@ YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
 usage(){
-  echo "Usage: $(basename "$0") alert_webhookid service file|dir recipient"
-  echo "  alert_webhookid: Slack webhook ID in format T[A-Z0-9]*/B[A-Z0-9]*/[a-zA-Z0-9]*"
-  echo "  service: Currently supported: 0x0.st"
+  echo "Usage: $(basename "$0") logging_webhookid alert_webhookid file|dir recipient"
+  echo "  logging_webhookid: Slack webhook ID for success notifications (format T[A-Z0-9]*/B[A-Z0-9]*/[a-zA-Z0-9]*)"
+  echo "  alert_webhookid: Slack webhook ID for failure notifications (format T[A-Z0-9]*/B[A-Z0-9]*/[a-zA-Z0-9]*)"
   echo "  file|dir: Path to file or directory to backup"
   echo "  recipient: Email address for GPG encryption"
 }
@@ -48,7 +48,11 @@ if [ -z ${1+x} ] || [ -z ${2+x} ] || [ -z ${3+x} ] || [ -z ${4+x} ]; then
   usage
   exit "$E_NOARGS"
 elif ! [[ $1 =~ $wh_regex ]]; then
-  log_msg "ERROR: Webhook format invalid. Expected format $wh_regex. Received: $1"
+  log_msg "ERROR: Logging webhook format invalid. Expected format $wh_regex. Received: $1"
+  usage
+  exit 1
+elif ! [[ $2 =~ $wh_regex ]]; then
+  log_msg "ERROR: Alert webhook format invalid. Expected format $wh_regex. Received: $2"
   usage
   exit 1
 elif ! test -e "$3"; then
@@ -57,14 +61,11 @@ elif ! test -e "$3"; then
   exit 1
 fi
 
-wh=$1
-service=$2
+logging_wh=$1
+alert_wh=$2
 fileordir=$3
 recipient=$4
 now=$(date +%d%m%y-%H%M)
-
-# Initialize variables
-dns_blocked=false
 
 # Check if GPG is installed
 if ! command -v gpg &> /dev/null; then
@@ -112,119 +113,107 @@ if ! gpg --quiet --encrypt --output "${path_enc}" --yes --recipient "${recipient
 fi
 log_msg "File encrypted successfully: ${path_enc}"
 
-log_msg "Uploading encrypted file to ${service}..."
-if [ "${service}" == "0x0.st" ]; then
-    # Add timeout and retry logic with better error handling
-    max_retries=3
-    retry_count=0
-    
-    while [ $retry_count -lt $max_retries ]; do
-        # Use -v for verbose output to a log file for debugging
-        curl_log="/tmp/curl_log_${now}.txt"
-        backup_url=$(curl --verbose --max-time 30 -F "file=@${path_enc}" "https://0x0.st" 2>"$curl_log")
-        
-        # Check if we got a successful response
-        if [[ "${backup_url}" == *"0x0.st"* ]]; then
-            log_msg "Upload successful on attempt $((retry_count + 1))"
-            break
-        fi
-        
-        # Check for specific error conditions - store the result to avoid multiple greps
-        if grep -q "blocked-by: NextDNS" "$curl_log"; then
-            log_msg "${RED}Upload attempt $((retry_count + 1)) failed: Service is being blocked by DNS${NC}"
-            log_msg "${YELLOW}This is likely due to network restrictions or DNS filtering${NC}"
-            # Set a flag to indicate DNS blocking for later use
-            dns_blocked=true
-            # No need to retry if it's being blocked by DNS
-            break
-        else
-            # Log the error details
-            log_msg "Upload attempt $((retry_count + 1)) failed. Error details saved to $curl_log"
-            log_msg "Response received: ${backup_url:-'No response'}"
-            
-            retry_count=$((retry_count + 1))
-            if [ $retry_count -lt $max_retries ]; then
-                log_msg "Retrying in 5 seconds..."
-                sleep 5
-            fi
-        fi
-    done
-    
-    # If all attempts failed, try an alternative service as fallback
-    if [[ "${backup_url}" != *"0x0.st"* ]]; then
-        # Use the dns_blocked flag instead of grep again
-        if [ "$dns_blocked" = true ]; then
-            log_msg "${YELLOW}Upload to 0x0.st failed because the service is blocked by DNS filtering${NC}"
-            log_msg "${YELLOW}You may need to configure your network to allow access to this service${NC}"
-        else
-            log_msg "All attempts to upload to 0x0.st failed. Trying alternative method..."
-        fi
-        
-        # Save file locally as fallback
-        fallback_path="/tmp/backup_${file_enc}"
-        cp "${path_enc}" "$fallback_path"
-        log_msg "Fallback backup saved to: $fallback_path"
-    fi
-else
-    log_msg "ERROR: Unknown service. Currently available: 0x0.st"
-    exit 1
-fi
+log_msg "Uploading encrypted file to curlbin.ignacio.systems..."
 
-if [[ "${backup_url}" == *"0x0.st"* ]]; then
-    log_msg "Backup performed - OK"
-    log_msg "Backup url: ${backup_url}"
+# Add timeout and retry logic with better error handling
+max_retries=3
+retry_count=0
+curl_log="/tmp/curl_log_${now}.txt"
+
+while [ $retry_count -lt $max_retries ]; do
+    # Upload to curlbin.ignacio.systems
+    log_msg "Attempt $((retry_count + 1)) to upload file..."
+    upload_response=$(curl -s --max-time 30 -Fc=@"${path_enc}" "https://curlbin.ignacio.systems" 2>"$curl_log")
     
-    # Create a file with the backup URL for reference
-    echo "${backup_url}" > "/tmp/backup_url_${now}.txt"
-    log_msg "Backup URL saved to: /tmp/backup_url_${now}.txt"
+    # Check if we got a successful response by looking for the URL field in the JSON
+    if [[ "$upload_response" == *"url"* ]]; then
+        # Extract the URL from the JSON response
+        if command -v jq &> /dev/null; then
+            backup_url=$(echo "$upload_response" | jq -r '.url')
+            suggested_url=$(echo "$upload_response" | jq -r '.suggestedUrl')
+            manage_url=$(echo "$upload_response" | jq -r '.manageUrl')
+            expire_at=$(echo "$upload_response" | jq -r '.expireAt')
+        else
+            # Fallback to basic extraction if jq is not available
+            backup_url=$(echo "$upload_response" | grep -o '"url": "[^"]*"' | cut -d'"' -f4)
+            suggested_url=$(echo "$upload_response" | grep -o '"suggestedUrl": "[^"]*"' | cut -d'"' -f4)
+            manage_url=$(echo "$upload_response" | grep -o '"manageUrl": "[^"]*"' | cut -d'"' -f4)
+            expire_at=$(echo "$upload_response" | grep -o '"expireAt": "[^"]*"' | cut -d'"' -f4)
+        fi
+        
+        if [ -n "$backup_url" ]; then
+            log_msg "${GREEN}Upload successful on attempt $((retry_count + 1))${NC}"
+            break
+        fi
+    fi
+    
+    # If we get here, the upload failed
+    log_msg "${RED}Upload attempt $((retry_count + 1)) failed${NC}"
+    log_msg "Response received: ${upload_response:-'No response'}"
+    
+    retry_count=$((retry_count + 1))
+    if [ $retry_count -lt $max_retries ]; then
+        log_msg "Retrying in 5 seconds..."
+        sleep 5
+    fi
+done
+
+# Check if upload was successful
+if [ -n "${backup_url:-}" ]; then
+    log_msg "${GREEN}Backup performed successfully${NC}"
+    log_msg "Backup URL: ${backup_url}"
+    log_msg "Suggested URL: ${suggested_url}"
+    log_msg "Management URL: ${manage_url}"
+    log_msg "Expires at: ${expire_at}"
+    
+    # Create a file with the backup URLs for reference
+    {
+        echo "Backup URL: ${backup_url}"
+        echo "Suggested URL: ${suggested_url}"
+        echo "Management URL: ${manage_url}"
+        echo "Expires at: ${expire_at}"
+    } > "/tmp/backup_url_${now}.txt"
+    log_msg "Backup URLs saved to: /tmp/backup_url_${now}.txt"
     
     # Print success message with file size information
     orig_size=$(du -h "${fileordir}" | cut -f1)
     enc_size=$(du -h "${path_enc}" | cut -f1)
     log_msg "Original size: ${orig_size}, Encrypted size: ${enc_size}"
     
-    exit 0
-else
-    # Check if we have a fallback backup
-    fallback_path="/tmp/backup_${file_enc}"
-    if [ -f "$fallback_path" ]; then
-        log_msg "WARNING: Online backup failed, but local fallback backup is available at: $fallback_path"
-        log_msg "You can manually upload this file later."
-        
-        # Include fallback information in the alert
-        webalert_hook="https://hooks.slack.com/services/$wh"
-        hostname_info=$(hostname)
-        
-        # Use the dns_blocked flag instead of grep again
-        if [ "$dns_blocked" = true ]; then
-            content="{\"text\":\"\`${hostname_info}\` - Online backup failed due to DNS blocking \nFile: \`${fileordir}\`\nLocal backup: \`${fallback_path}\`\n:warning: *The 0x0.st service is being blocked by DNS filtering. You may need to configure your network settings.* \n \"}"  
-        else
-            content="{\"text\":\"\`${hostname_info}\` - Online backup failed but local backup available \nFile: \`${fileordir}\`\nLocal backup: \`${fallback_path}\`\nResponse: \`${backup_url:-'No response'}\` \n \"}"  
-        fi
-    else
-        log_msg "ERROR: Backup failed completely. Response: ${backup_url:-'No response'}"
-        
-        # Check if we have curl logs to include in the alert
-        curl_error=""
-        if [ -f "$curl_log" ]; then
-            # More efficient: avoid using cat and pipe
-            curl_error=$(head -n 10 "$curl_log")
-            log_msg "Curl error details: $curl_error"
-        fi
-        
-        webalert_hook="https://hooks.slack.com/services/$wh"
-        hostname_info=$(hostname)
-        content="{\"text\":\"\`${hostname_info}\` - Backup failed \nFile: \`${fileordir}\`\nResponse: \`${backup_url:-'No response'}\`\nError: \`${curl_error}\` \n \"}"
-    fi
+    # Send success notification to Slack using logging webhook
+    logging_hook="https://hooks.slack.com/services/$logging_wh"
+    hostname_info=$(hostname)
+    content="{\"text\":\"\u2705 \`${hostname_info}\` - Backup successful \nFile: \`${fileordir}\`\nBackup URL: \`${backup_url}\`\nExpires: \`${expire_at}\` \n\"}"
     
-    log_msg "Sending alert to Slack webhook"
-    webhook_result=$(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$webalert_hook" || echo "Webhook call failed")
+    log_msg "Sending success notification to logging webhook"
+    webhook_result=$(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$logging_hook" || echo "Webhook call failed")
     log_msg "Webhook result: ${webhook_result}"
     
-    # Return a partial success if we have a fallback backup
-    if [ -f "$fallback_path" ]; then
-        exit 2  # Use exit code 2 to indicate partial success with fallback
-    else
-        exit 1  # Complete failure
+    exit 0
+else
+    # Upload failed completely
+    log_msg "${RED}ERROR: Backup failed after $max_retries attempts${NC}"
+    
+    # Save file locally as fallback
+    fallback_path="/tmp/backup_${file_enc}"
+    cp "${path_enc}" "$fallback_path"
+    log_msg "${YELLOW}Fallback backup saved to: $fallback_path${NC}"
+    
+    # Check if we have curl logs to include in the alert
+    curl_error=""
+    if [ -f "$curl_log" ]; then
+        curl_error=$(head -n 10 "$curl_log")
+        log_msg "Curl error details: $curl_error"
     fi
+    
+    # Send failure notification to Slack using alert webhook
+    alert_hook="https://hooks.slack.com/services/$alert_wh"
+    hostname_info=$(hostname)
+    content="{\"text\":\"\u274c \`${hostname_info}\` - Backup failed \nFile: \`${fileordir}\`\nLocal backup: \`${fallback_path}\`\nError: \`${curl_error}\` \n\"}"
+    
+    log_msg "Sending alert to alert webhook"
+    webhook_result=$(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$alert_hook" || echo "Webhook call failed")
+    log_msg "Webhook result: ${webhook_result}"
+    
+    exit 1
 fi
