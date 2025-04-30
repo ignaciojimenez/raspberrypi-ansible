@@ -3,33 +3,38 @@
 # Consolidated system health check script that performs all basic system monitoring checks
 # This script is called by the enhanced_monitoring_wrapper from deploy_monitoring.yml
 
-# Initialize variables to track overall status
-OVERALL_STATUS="success"
-SUMMARY=""
-FAILED_CHECKS=0
-TOTAL_CHECKS=0
+# Initialize variables
+failed_checks=0
+total_checks=0
+start_time=$(date)
+output_summary=""
+verbose_output=""
 
-# Function to run a check and collect results
+echo "Starting system health checks at $start_time"
+
+# Function to run a check and report results
 run_check() {
-    local check_name="$1"
-    local check_command="$2"
-    local result
-    local exit_code
+    local check_name=$1
+    local check_function=$2
     
     echo "Running check: $check_name"
-    result=$(eval "$check_command" 2>&1)
-    exit_code=$?
     
-    TOTAL_CHECKS=$((TOTAL_CHECKS + 1))
+    # Run the check function and capture its output
+    local result=$($check_function)
+    local status=$?
     
-    if [ $exit_code -eq 0 ]; then
-        echo "✅ $check_name: $result"
-        SUMMARY="${SUMMARY}\n✅ $check_name: $result"
-    else
+    # Increment the total number of checks
+    total_checks=$((total_checks + 1))
+    
+    # If the check failed, increment the failed checks counter
+    if [ $status -ne 0 ]; then
+        failed_checks=$((failed_checks + 1))
+        output_summary="$output_summary\n❌ $check_name: $result"
+        verbose_output="$verbose_output\n\n--- $check_name DETAILS ---$result"
         echo "❌ $check_name: $result"
-        SUMMARY="${SUMMARY}\n❌ $check_name: $result"
-        OVERALL_STATUS="failure"
-        FAILED_CHECKS=$((FAILED_CHECKS + 1))
+    else
+        output_summary="$output_summary\n✅ $check_name: $result"
+        echo "✅ $check_name: $result"
     fi
 }
 
@@ -104,112 +109,200 @@ check_auto_upgrades() {
     local issues_found=0
     local actions_taken=0
     local output=""
+    local summary=""
     
     # Check if unattended-upgrades is installed
-    if ! sudo dpkg -l | grep -q unattended-upgrades; then
-        output="${output}\nunattended-upgrades package is not installed"
+    if ! dpkg -l | grep -q "unattended-upgrades"; then
+        summary="${summary}\n- Unattended-upgrades package is not installed"
         issues_found=$((issues_found + 1))
-    fi
-
-    # Check if the service is enabled
-    if ! sudo systemctl is-enabled unattended-upgrades.service &>/dev/null; then
-        output="${output}\nunattended-upgrades service is not enabled"
         
-        # Self-healing: Enable the service
-        sudo systemctl enable unattended-upgrades.service &>/dev/null
+        # Self-healing: attempt to install the package
+        sudo apt-get install -y unattended-upgrades >/dev/null 2>&1
         if [ $? -eq 0 ]; then
-            output="${output}\nACTIONS TAKEN: Enabled unattended-upgrades service"
+            summary="${summary}\n- FIXED: Installed unattended-upgrades package"
             actions_taken=$((actions_taken + 1))
         fi
-        
-        issues_found=$((issues_found + 1))
     fi
-
-    # Check if the service is active
-    if ! sudo systemctl is-active unattended-upgrades.service &>/dev/null; then
-        output="${output}\nunattended-upgrades service is not running"
+    
+    # Check if the service is enabled and running
+    if ! systemctl is-enabled unattended-upgrades.service >/dev/null 2>&1; then
+        summary="${summary}\n- Unattended-upgrades service is not enabled"
+        issues_found=$((issues_found + 1))
         
-        # Self-healing: Start the service
-        sudo systemctl start unattended-upgrades.service &>/dev/null
+        # Self-healing: enable the service
+        sudo systemctl enable unattended-upgrades.service >/dev/null 2>&1
         if [ $? -eq 0 ]; then
-            output="${output}\nACTIONS TAKEN: Started unattended-upgrades service"
+            summary="${summary}\n- FIXED: Enabled unattended-upgrades service"
             actions_taken=$((actions_taken + 1))
         fi
-        
-        issues_found=$((issues_found + 1))
     fi
-
-    # Check for recent unattended-upgrade activity
+    
+    if ! systemctl is-active unattended-upgrades.service >/dev/null 2>&1; then
+        summary="${summary}\n- Unattended-upgrades service is not running"
+        issues_found=$((issues_found + 1))
+        
+        # Self-healing: start the service
+        sudo systemctl start unattended-upgrades.service >/dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            summary="${summary}\n- FIXED: Started unattended-upgrades service"
+            actions_taken=$((actions_taken + 1))
+        fi
+    fi
+    
+    # Check for evidence of recent unattended-upgrade activity
     local upgrade_activity_found=false
     local upgrade_evidence=""
     
     # Check for reboot-required file which indicates successful upgrades
     if sudo test -f /var/run/reboot-required; then
         upgrade_activity_found=true
-        upgrade_evidence="Found /var/run/reboot-required file, indicating successful security upgrades"
+        upgrade_evidence="reboot-required file found"
     fi
     
     # Check log file for various upgrade patterns
     if [ -f /var/log/unattended-upgrades/unattended-upgrades.log ]; then
         # Look for various patterns that indicate upgrade activity
-        local recent_logs=$(sudo grep -E "Unattended upgrade|unattended-upgrade|packages upgraded|packages to upgrade|packages to install|reboot-required" /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null | grep -v "DEBUG" | tail -n 20)
+        local recent_logs=$(sudo grep -E "Unattended upgrade|unattended-upgrade|packages upgraded|packages to upgrade|packages to install|reboot-required" /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null | grep -v "DEBUG" | tail -n 5)
         
-        # Print the recent logs for debugging
-        output="${output}\n\nRecent upgrade-related log entries (last 20):\n$recent_logs"
+        # Store the logs for verbose output
+        output="${output}\nRecent logs: $(echo "$recent_logs" | head -n 2 | tr '\n' ' ')..."
         
         # If we have any log entries, that's evidence of activity
         if [ -n "$recent_logs" ]; then
             upgrade_activity_found=true
             if [ -z "$upgrade_evidence" ]; then
-                upgrade_evidence="Found upgrade-related entries in logs"
+                upgrade_evidence="recent log activity"
             fi
         fi
         
         # Check for scheduled reboots which indicate successful upgrades
         if echo "$recent_logs" | grep -q "reboot"; then
             upgrade_activity_found=true
-            upgrade_evidence="${upgrade_evidence}\nFound evidence of scheduled reboot after upgrades"
+            upgrade_evidence="${upgrade_evidence}, scheduled reboot"
         fi
     else
-        output="${output}\n\nUnattended-upgrades log file not found"
+        summary="${summary}\n- Unattended-upgrades log file not found"
     fi
     
     # Also check apt history logs as an alternative source
     if [ -d /var/log/apt ]; then
         local apt_history=$(sudo grep -l "unattended-upgrades" /var/log/apt/history.log* 2>/dev/null | head -n 1)
         if [ -n "$apt_history" ]; then
-            local apt_entries=$(sudo zgrep -a "Commandline: /usr/bin/unattended-upgrade" "$apt_history" 2>/dev/null | tail -n 5)
+            local apt_entries=$(sudo zgrep -a "Commandline: /usr/bin/unattended-upgrade" "$apt_history" 2>/dev/null | tail -n 2)
             if [ -n "$apt_entries" ]; then
                 upgrade_activity_found=true
-                upgrade_evidence="${upgrade_evidence}\nFound unattended-upgrade entries in apt history logs"
-                output="${output}\n\nApt history log entries:\n$apt_entries"
+                upgrade_evidence="${upgrade_evidence}, apt history entries"
+                output="${output}\nApt history: $(echo "$apt_entries" | head -n 1 | tr '\n' ' ')..."
             fi
         fi
     fi
     
     # Final determination based on all evidence
     if [ "$upgrade_activity_found" = false ]; then
-        output="${output}\n\nNo evidence of recent unattended-upgrade activity found"
+        summary="${summary}\n- No evidence of recent unattended-upgrade activity"
         issues_found=$((issues_found + 1))
     else
-        output="${output}\n\nEvidence of unattended-upgrade activity found:\n$upgrade_evidence"
+        output="${output}\nUpgrade evidence: $upgrade_evidence"
     fi
 
-    # Check for failed upgrade attempts
+    # Check for failed upgrade attempts since the last scheduled run
     if [ -f /var/log/unattended-upgrades/unattended-upgrades.log ]; then
-        local failed_upgrades=$(sudo grep -i "error\|fail" /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null | grep -v "DEBUG\|warning" | tail -n 10)
+        # Get current date and time
+        local current_date=$(date +"%Y-%m-%d")
+        local current_hour=$(date +"%H" | sed 's/^0//')
         
-        # Print the failed upgrades for debugging
-        if [ -n "$failed_upgrades" ]; then
-            output="${output}\n\nPotential upgrade errors found in logs:\n$failed_upgrades"
-            issues_found=$((issues_found + 1))
+        # Determine the date we should check for errors based on the full upgrade cycle
+        # - Upgrades run at 6:00-7:00 AM
+        # - Reboots (if needed) happen at 4:00 AM the next day
+        local check_date
+        if [ "$current_hour" -lt 4 ]; then
+            # Before reboot time (4:00 AM), check two days ago's upgrade cycle
+            check_date=$(date -d "2 days ago" +"%Y-%m-%d" 2>/dev/null || date -v-2d +"%Y-%m-%d" 2>/dev/null)
+        elif [ "$current_hour" -lt 7 ]; then
+            # Between reboot (4:00 AM) and upgrade (7:00 AM), check yesterday's upgrade cycle
+            check_date=$(date -d "1 day ago" +"%Y-%m-%d" 2>/dev/null || date -v-1d +"%Y-%m-%d" 2>/dev/null)
         else
-            # Check for warnings separately
-            local warnings=$(sudo grep -i "warning" /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null | grep -v "DEBUG" | tail -n 5)
-            if [ -n "$warnings" ]; then
-                output="${output}\n\nWarnings in logs (not counted as errors):\n$warnings"
+            # After today's upgrade (post 7:00 AM), check today's upgrade cycle
+            check_date="$current_date"
+        fi
+        
+        # Find the last scheduled upgrade run time (around 6:00-7:00 AM on check_date)
+        local last_scheduled_run=$(sudo grep "Writing dpkg log" /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null | grep "$check_date" | grep -E "0?6:|0?7:" | tail -n 1 | cut -d' ' -f1-2)
+        
+        # Also check for reboot evidence at 4:00 AM (which would be the day after check_date)
+        local reboot_date
+        if [ "$current_hour" -lt 4 ]; then
+            # Before today's reboot time
+            reboot_date=$(date -d "1 day ago" +"%Y-%m-%d" 2>/dev/null || date -v-1d +"%Y-%m-%d" 2>/dev/null)
+        else
+            # After today's reboot time
+            reboot_date="$current_date"
+        fi
+        local reboot_evidence=$(sudo grep "Automatic-Reboot" /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null | grep "$reboot_date" | grep -E "0?4:" | tail -n 1)
+        
+        # If we can't find the scheduled run, look for any run on that day
+        if [ -z "$last_scheduled_run" ]; then
+            last_scheduled_run=$(sudo grep "Writing dpkg log" /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null | grep "$check_date" | tail -n 1 | cut -d' ' -f1-2)
+        fi
+        
+        # Get errors since the last scheduled run
+        local failed_upgrades
+        if [ -n "$last_scheduled_run" ]; then
+            # Get errors since the last scheduled run
+            local timestamp_line=$(sudo grep -n "$last_scheduled_run" /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null | cut -d':' -f1)
+            if [ -n "$timestamp_line" ]; then
+                failed_upgrades=$(sudo tail -n +"$timestamp_line" /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null | grep -i "error\|fail" | grep -v "DEBUG\|warning" | tail -n 3)
+            fi
+        else
+            # Fallback: check last 24 hours if we can't find the scheduled run
+            local yesterday=$(date -d "1 day ago" +"%Y-%m-%d" 2>/dev/null || date -v-1d +"%Y-%m-%d" 2>/dev/null)
+            failed_upgrades=$(sudo grep -i "error\|fail" /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null | grep -v "DEBUG\|warning" | grep -E "$current_date|$yesterday" | tail -n 3)
+        fi
+        
+        # Process any failed upgrades
+        if [ -n "$failed_upgrades" ]; then
+            local error_sample=$(echo "$failed_upgrades" | head -n 1 | tr -d '\n')
+            
+            # Extract the date and hour from the error message
+            local error_date=$(echo "$error_sample" | grep -oE "[0-9]{4}-[0-9]{2}-[0-9]{2}" | head -n 1)
+            local error_hour=$(echo "$error_sample" | grep -oE "[0-9]{2}:[0-9]{2}" | head -n 1 | cut -d':' -f1)
+            
+            # Get current date and hour
+            local current_date=$(date +"%Y-%m-%d")
+            local current_hour=$(date +"%H")
+            
+            # Simple time comparison - consider errors from today and within 3 hours as recent
+            local is_recent=false
+            
+            if [ "$error_date" = "$current_date" ]; then
+                # It's from today, check if it's within the last 3 hours
+                local hour_diff=$((current_hour - error_hour))
+                if [ $hour_diff -le 3 ]; then
+                    is_recent=true
+                fi
+            fi
+            
+            # Add debug output
+            output="${output}\nDEBUG: Error date: $error_date, Error hour: $error_hour, Current date: $current_date, Current hour: $current_hour"
+            
+            # Only consider recent errors as active issues
+            if [ "$is_recent" = true ]; then
+                if [ -n "$last_scheduled_run" ]; then
+                    # If we have reboot evidence after the errors, note that the cycle completed
+                    if [ -n "$reboot_evidence" ] && [ "$(date -d "$last_scheduled_run" +%s 2>/dev/null || date -jf "%Y-%m-%d %H:%M:%S" "$last_scheduled_run" +%s 2>/dev/null)" -lt "$(date -d "$reboot_date 04:00:00" +%s 2>/dev/null || date -jf "%Y-%m-%d %H:%M:%S" "$reboot_date 04:00:00" +%s 2>/dev/null)" ]; then
+                        output="${output}\nErrors found but resolved by reboot: $error_sample"
+                        # Don't count as an issue if there was a successful reboot after the errors
+                    else
+                        summary="${summary}\n- Recent errors in last upgrade: $error_sample"
+                        issues_found=$((issues_found + 1))
+                    fi
+                else
+                    summary="${summary}\n- Recent upgrade errors: $error_sample"
+                    issues_found=$((issues_found + 1))
+                fi
             else
-                output="${output}\n\nNo upgrade issues found in logs"
+                # This is an old error, don't count it as an issue
+                output="${output}\nOld errors found (not counted as issues): $error_sample"
             fi
         fi
     fi
@@ -217,26 +310,20 @@ check_auto_upgrades() {
     # Check for pending updates
     local pending_updates=$(sudo apt-get --simulate upgrade 2>/dev/null | grep -c "^Inst")
     if [ "$pending_updates" -gt 10 ]; then
-        output="${output}\n\nLarge number of pending updates ($pending_updates) - unattended upgrades may not be working properly"
+        summary="${summary}\n- Large number of pending updates ($pending_updates)"
         issues_found=$((issues_found + 1))
     else
-        output="${output}\n\nNormal number of pending updates: $pending_updates"
+        output="${output}\nPending updates: $pending_updates"
     fi
     
-    # Show what updates are pending
-    local pending_update_list=$(sudo apt-get --simulate upgrade 2>/dev/null | grep "^Inst" | head -n 5)
-    if [ -n "$pending_update_list" ]; then
-        output="${output}\n\nSample of pending updates:\n$pending_update_list"
-    fi
-
     # Check configuration files
     if [ ! -f /etc/apt/apt.conf.d/20auto-upgrades ] || [ ! -f /etc/apt/apt.conf.d/50unattended-upgrades ]; then
-        output="${output}\nMissing one or more configuration files"
+        summary="${summary}\n- Missing configuration files"
         issues_found=$((issues_found + 1))
     else
         # Check for key settings in config files
         if ! sudo grep -q "APT::Periodic::Unattended-Upgrade \"1\"" /etc/apt/apt.conf.d/20auto-upgrades; then
-            output="${output}\nUnattended upgrades not enabled in 20auto-upgrades"
+            summary="${summary}\n- Unattended upgrades not enabled in config"
             issues_found=$((issues_found + 1))
         fi
     fi
@@ -246,21 +333,24 @@ check_auto_upgrades() {
         echo "Auto-upgrades are properly configured and running"
         return 0
     else
-        echo "Auto-upgrades check found $issues_found issues"
-        echo "$output"
+        # Add the summary to verbose_output for the detailed report
+        verbose_output="${verbose_output}\n\n--- AUTO-UPGRADES ISSUES ---$summary"
         
-        if [ $actions_taken -gt 0 ]; then
-            echo "Self-healing actions taken: $actions_taken"
+        # For the main output, just show the count of issues
+        if [ $actions_taken -gt 0 ] && [ $actions_taken -eq $issues_found ]; then
+            # All issues were fixed - return success
+            echo "Auto-upgrades had $issues_found issues but all were auto-fixed"
+            return 0
+        else
+            # Some issues remain - return a specific error message for run_check to display
+            # with the red X
+            echo "Auto-upgrades has $issues_found unresolved issues: $(echo "$summary" | head -n 1 | sed 's/^- //')"
+            return 1
         fi
-        
-        return 1
     fi
 }
 
 # Run all checks
-echo "Starting system health checks at $(date)"
-
-# Run all checks without passing arguments to run_check
 run_check "disk_space_root" "check_disk_space / 90"
 run_check "disk_space_home" "check_disk_space /home 90"
 run_check "memory_usage" "check_memory 90"
@@ -269,14 +359,15 @@ run_check "network_connectivity" "check_network"
 run_check "auto_upgrades" "check_auto_upgrades"
 
 # Create a summary message
-SUMMARY_HEADER="System Health Check Summary: $TOTAL_CHECKS checks performed, $FAILED_CHECKS failed"
-FULL_SUMMARY="${SUMMARY_HEADER}${SUMMARY}"
-
-echo "$SUMMARY_HEADER"
 echo "Completed system health checks at $(date)"
-echo "$FULL_SUMMARY"
 
-# Exit with failure if any check failed
-if [ "$OVERALL_STATUS" = "failure" ]; then
-  exit 1
+# Only show detailed output if there were issues
+if [ $failed_checks -gt 0 ] && [ -n "$verbose_output" ]; then
+    echo -e "\nDetailed diagnostics for failed checks:$verbose_output"
+fi
+# Exit with failure status if any checks failed
+if [ $failed_checks -gt 0 ]; then
+    exit 1
+else
+    exit 0
 fi
