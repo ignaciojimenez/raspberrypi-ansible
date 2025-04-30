@@ -98,7 +98,7 @@
   vars:
     monitoring_name: "homeassistant_backup"
     monitoring_script_src: "{{ inventory_dir }}/common_scripts/backup_last_mod"
-    monitoring_script_args: "{{ alert_token }} 0x0.st /home/{{ ansible_user_id }}/homeassistant/backups/ {{ git_mail }}"
+    monitoring_script_args: "--silent /home/{{ ansible_user_id }}/homeassistant/backups/ {{ git_mail }}"
     cron_minute: "0"
     cron_hour: "4"
     heartbeat_interval: "daily"

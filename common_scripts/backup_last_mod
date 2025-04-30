@@ -17,36 +17,123 @@ log_msg() {
 }
 
 usage(){
-  echo "Usage: $(basename "$0") alert_webhookid service folder recipient"
-  echo "  alert_webhookid: Slack webhook ID in format T[A-Z0-9]*/B[A-Z0-9]*/[a-zA-Z0-9]*"
-  echo "  service: Currently supported: 0x0.st"
-  echo "  folder: Path to folder containing files to backup"
-  echo "  recipient: Email address for GPG encryption"
+  echo "Usage: $(basename "$0") [options] folder recipient"
+  echo "Options:"
+  echo "  --logging=webhook_id  Slack webhook ID for success notifications (format T[A-Z0-9]*/B[A-Z0-9]*/[a-zA-Z0-9]*)"
+  echo "  --alert=webhook_id    Slack webhook ID for failure notifications (format T[A-Z0-9]*/B[A-Z0-9]*/[a-zA-Z0-9]*)"
+  echo "  --silent             Suppress Slack notifications (useful when run via monitoring wrapper)"
+  echo "  --help               Show this help message"
+  echo ""
+  echo "Required arguments:"
+  echo "  folder              Path to folder containing files to backup"
+  echo "  recipient           Email address for GPG encryption"
+  echo ""
+  echo "Note: If --silent is used, webhook IDs are not required"
+  echo "      For backward compatibility, you can also use: logging_webhookid alert_webhookid folder recipient [--silent]"
 }
 
 E_NOARGS=85
 wh_regex="T[A-Z0-9]*\/B[A-Z0-9]*\/[a-zA-Z0-9]*"
-if [ -z ${1+x} ] || [ -z ${2+x} ] || [ -z ${3+x} ] || [ -z ${4+x} ]; then
+
+# Parse arguments
+silent_mode=false
+logging_wh=""
+alert_wh=""
+folder=""
+recipient=""
+
+# Check if using the old argument format (for backward compatibility)
+if [ -n "${1+x}" ] && [[ $1 =~ $wh_regex ]]; then
+  # Old format: logging_wh alert_wh folder recipient [--silent]
+  logging_wh=$1
+  alert_wh=$2
+  folder=$3
+  recipient=$4
+  
+  # Check for silent mode flag in old format
+  if [ -n "${5+x}" ] && [ "$5" == "--silent" ]; then
+    silent_mode=true
+  fi
+else
+  # New format with named options
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --logging=*)
+        logging_wh="${1#*=}"
+        shift
+        ;;
+      --alert=*)
+        alert_wh="${1#*=}"
+        shift
+        ;;
+      --silent)
+        silent_mode=true
+        shift
+        ;;
+      --help)
+        usage
+        exit 0
+        ;;
+      --*)
+        log_msg "${RED}ERROR: Unknown option: $1${NC}"
+        usage
+        exit 1
+        ;;
+      *)
+        # First non-option argument is folder
+        if [ -z "$folder" ]; then
+          folder="$1"
+        # Second non-option argument is recipient
+        elif [ -z "$recipient" ]; then
+          recipient="$1"
+        else
+          log_msg "${RED}ERROR: Unexpected argument: $1${NC}"
+          usage
+          exit 1
+        fi
+        shift
+        ;;
+    esac
+  done
+fi
+
+# Validate required arguments
+if [ -z "$folder" ] || [ -z "$recipient" ]; then
+  log_msg "${RED}ERROR: Missing required arguments${NC}"
   usage
   exit "$E_NOARGS"
-elif ! [[ $1 =~ $wh_regex ]]; then
-  log_msg "${RED}ERROR: Webhook format invalid. Expected format $wh_regex. Received: $1${NC}"
-  usage
-  exit 1
-elif [ "$2" != "0x0.st" ]; then
-  log_msg "${RED}ERROR: Unsupported service: $2. Currently only 0x0.st is supported.${NC}"
-  usage
-  exit 1
-elif ! test -d "$3"; then
-  log_msg "${RED}ERROR: Cannot access folder: $3${NC}"
+fi
+
+# Validate folder exists
+if ! test -d "$folder"; then
+  log_msg "${RED}ERROR: Cannot access folder: $folder${NC}"
   usage
   exit 1
 fi
 
-wh=$1
-service=$2
-folder=$3
-recipient=$4
+# Validate webhook format if provided
+if [ -n "$logging_wh" ] && ! [[ $logging_wh =~ $wh_regex ]]; then
+  log_msg "${RED}ERROR: Logging webhook format invalid. Expected format $wh_regex. Received: $logging_wh${NC}"
+  usage
+  exit 1
+fi
+
+if [ -n "$alert_wh" ] && ! [[ $alert_wh =~ $wh_regex ]]; then
+  log_msg "${RED}ERROR: Alert webhook format invalid. Expected format $wh_regex. Received: $alert_wh${NC}"
+  usage
+  exit 1
+fi
+
+# If not in silent mode, webhooks are required
+if [ "$silent_mode" != "true" ] && ([ -z "$logging_wh" ] || [ -z "$alert_wh" ]); then
+  log_msg "${RED}ERROR: Webhook IDs are required unless --silent is used${NC}"
+  usage
+  exit 1
+fi
+
+if [ "$silent_mode" == "true" ]; then
+  log_msg "${GREEN}Running in silent mode - will not send notifications${NC}"
+fi
 
 log_msg "${GREEN}Looking for the most recent file in: $folder${NC}"
 
@@ -76,8 +163,14 @@ if [ -n "$latest_file" ]; then
     exit 1
   fi
   
-  # shellcheck source=/dev/null
-  source "$do_backup_script" "$wh" "$service" "$latest_file" "$recipient"
+  # Execute do_backup with the appropriate arguments based on silent mode
+  if [ "$silent_mode" == "true" ]; then
+    # In silent mode, we can use the new format with just the required arguments
+    "$do_backup_script" --silent "$latest_file" "$recipient"
+  else
+    # When not in silent mode, we need to provide the webhook IDs
+    "$do_backup_script" --logging="$logging_wh" --alert="$alert_wh" "$latest_file" "$recipient"
+  fi
   backup_exit_code=$?
   
   if [ $backup_exit_code -eq 0 ]; then
@@ -95,14 +188,18 @@ if [ -n "$latest_file" ]; then
 else
   log_msg "${RED}ERROR: No files found in $folder${NC}"
   
-  # Send alert to webhook
-  webalert_hook="https://hooks.slack.com/services/$wh"
-  hostname_info=$(hostname)
-  content="{\"text\":\"\`${hostname_info}\` - Backup failed, latest file not retrieved. \n\file:\`${latest_file:-'None'}\` \n\folder:\`${folder}\` \n \"}"
-  
-  log_msg "${YELLOW}Sending alert to Slack webhook${NC}"
-  webhook_result=$(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$webalert_hook" || echo "Webhook call failed")
-  log_msg "Webhook result: ${webhook_result}"
+  # Send alert to webhook using the alert webhook (unless in silent mode)
+  if [ "$silent_mode" != "true" ]; then
+    alert_hook="https://hooks.slack.com/services/$alert_wh"
+    hostname_info=$(hostname)
+    content="{\"text\":\"\u274c \`${hostname_info}\` - Backup failed, latest file not retrieved. \n\file:\`${latest_file:-'None'}\` \n\folder:\`${folder}\` \n \"}"
+    
+    log_msg "${YELLOW}Sending alert to alert webhook${NC}"
+    webhook_result=$(curl -s -X POST -H 'Content-type: application/json' --data "${content}" "$alert_hook" || echo "Webhook call failed")
+    log_msg "Webhook result: ${webhook_result}"
+  else
+    log_msg "${YELLOW}Silent mode: Skipping failure notification${NC}"
+  fi
   
   exit 1
 fi
