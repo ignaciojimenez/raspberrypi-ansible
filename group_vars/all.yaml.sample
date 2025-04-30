@@ -11,9 +11,7 @@ gh_pgp: https://github.com/{{ gh_profile }}.gpg
 git_name: "Foo bar"
 git_mail: foo@bar.com
 
-#slack tokens - TODO migrate to ansible vault
-alert_token: "xoxb-xxxxxxxxx-xxxxxxxxxx-xxxxxxxxxxxx"
-logging_token: "xoxb-xxxxxxxxx-xxxxxxxxxx-xxxxxxxxxxxx"
+#slack tokens are now in group_vars/all_secrets.yaml
 
 # directories_config
 home_dir: "/home/{{ ansible_user_id }}"
