@@ -21,10 +21,12 @@ usage(){
   echo "Options:"
   echo "  --logging=webhook_id  Slack webhook ID for success notifications (format T[A-Z0-9]*/B[A-Z0-9]*/[a-zA-Z0-9]*)"
   echo "  --alert=webhook_id    Slack webhook ID for failure notifications (format T[A-Z0-9]*/B[A-Z0-9]*/[a-zA-Z0-9]*)"
+  echo "  --folder=PATH        Path to folder containing files to backup (REQUIRED)"
+  echo "  --email=EMAIL       Email address for GPG encryption (REQUIRED)"
   echo "  --silent             Suppress Slack notifications (useful when run via monitoring wrapper)"
   echo "  --help               Show this help message"
   echo ""
-  echo "Required arguments:"
+  echo "Required arguments (can be specified as options or positional arguments):"
   echo "  folder              Path to folder containing files to backup"
   echo "  recipient           Email address for GPG encryption"
   echo ""
@@ -59,11 +61,19 @@ else
   while [ $# -gt 0 ]; do
     case "$1" in
       --logging=*)
-        logging_wh="${1#*=}"
+        logging_wh="${1#--logging=}"
         shift
         ;;
       --alert=*)
-        alert_wh="${1#*=}"
+        alert_wh="${1#--alert=}"
+        shift
+        ;;
+      --folder=*)
+        folder="${1#--folder=}"
+        shift
+        ;;
+      --email=*)
+        recipient="${1#--email=}"
         shift
         ;;
       --silent)
@@ -83,15 +93,16 @@ else
         # First non-option argument is folder
         if [ -z "$folder" ]; then
           folder="$1"
+          shift
         # Second non-option argument is recipient
         elif [ -z "$recipient" ]; then
           recipient="$1"
+          shift
         else
           log_msg "${RED}ERROR: Unexpected argument: $1${NC}"
           usage
           exit 1
         fi
-        shift
         ;;
     esac
   done

@@ -27,7 +27,7 @@ usage() {
   echo "Options:"
   echo "  --logging=TOKEN   Slack webhook token for success notifications"
   echo "  --alert=TOKEN     Slack webhook token for failure notifications"
-  echo "  --email=ADDRESS   Email address for GPG encryption"
+  echo "  --email=ADDRESS   Email address for GPG encryption (REQUIRED)"
   echo "  --silent          Run in silent mode (no notifications, for use with monitoring wrapper)"
   echo "  --help            Show this help message"
   echo ""
@@ -54,7 +54,7 @@ else
         shift
         ;;
       --email=*)
-        email="${1#*=}"
+        email="${1#--email=}"
         shift
         ;;
       --silent)
@@ -195,7 +195,7 @@ log_msg "${GREEN}Using do_backup script: $DO_BACKUP_SCRIPT${NC}"
 
 # Use the appropriate do_backup command based on silent mode
 if [ "$silent_mode" == "true" ]; then
-  # In silent mode, we only need to pass the file and email
+  # In silent mode, we only need to pass the file and recipient
   log_msg "Running do_backup in silent mode"
   "$DO_BACKUP_SCRIPT" --silent "$BACKUP_FILE" "$email"
 else

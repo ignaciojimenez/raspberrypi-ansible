@@ -110,7 +110,7 @@
   vars:
     monitoring_name: "plex_config_backup"
     monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/backup_plex_config"
-    monitoring_script_args: "{{ logging_token }} {{ alert_token }} 0x0.st {{ git_mail }}"
+    monitoring_script_args: "--silent --email={{ git_mail }}"
     cron_minute: "0"
     cron_hour: "4"
     cron_day: "*/7"  # Weekly backup
