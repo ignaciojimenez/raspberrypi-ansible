@@ -148,3 +148,6 @@
 
 - name: Deploy monitoring for vinylstreamer
   ansible.builtin.import_playbook: "{{host}}/deploy_monitoring.yml"
+
+- name: Apply system optimizations
+  ansible.builtin.import_playbook: "{{host}}/optimize_system.yml"

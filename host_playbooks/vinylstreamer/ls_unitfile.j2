@@ -1,14 +1,19 @@
 [Unit]
 Description={{ ls_name }}.liq Liquidsoap daemon
-After=sound.target
+After=sound.target icecast2.service
+Requires=icecast2.service
 
 [Service]
 Type=forking
 User={{ ansible_user_id }}
-ExecStartPre=/bin/sleep 5
+ExecStartPre=/bin/sleep 2
 PIDFile=/tmp/{{ ls_name }}.liq.pid
 ExecStart=/usr/bin/liquidsoap {{ ls_script_path }}
-Restart=always
+Restart=on-failure
+RestartSec=5
+CPUWeight=75
+IOWeight=90
+Nice=5
 
 [Install]
 WantedBy=multi-user.target

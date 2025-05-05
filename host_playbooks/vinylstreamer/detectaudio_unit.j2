@@ -11,6 +11,9 @@ ExecStartPre=/bin/chown {{ ansible_user_id }}:{{ ansible_user_id }} {{ logs_dir 
 ExecStart={{ d_audio_path }}/detect_audio.py >> {{ logs_dir }}/detect_audio_daemon.log 2>&1
 Restart=always
 RestartSec=10
+CPUWeight=75
+IOWeight=90
+Nice=0
 
 [Install]
 WantedBy=multi-user.target

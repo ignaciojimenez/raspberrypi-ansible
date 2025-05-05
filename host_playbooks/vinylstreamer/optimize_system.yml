@@ -1,0 +1,32 @@
+---
+# Playbook to apply system optimizations for better performance
+# These optimizations help reduce CPU usage and improve I/O performance
+
+- name: Apply system optimizations
+  hosts: all
+  become: true
+  tasks:
+    - name: Set sysctl parameters for better performance
+      ansible.builtin.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      with_items:
+        - { key: "vm.swappiness", value: "10" }
+        - { key: "vm.dirty_ratio", value: "20" }
+        - { key: "vm.dirty_background_ratio", value: "10" }
+      tags:
+        - sysctl
+        - performance
+
+    - name: Create tmpfs mount for temporary files
+      ansible.builtin.mount:
+        path: /tmp
+        src: tmpfs
+        fstype: tmpfs
+        opts: defaults,noatime,size=50M
+        state: mounted
+      tags:
+        - tmpfs
+        - performance
