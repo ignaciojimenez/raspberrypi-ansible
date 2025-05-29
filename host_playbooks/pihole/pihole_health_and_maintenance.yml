@@ -146,3 +146,17 @@
     special_time: "monthly"
     heartbeat_interval: "always"
     notify_fixed: "true"
+
+# ============================================================
+# EXTERNAL HOST MONITORING - Monitor other Raspberry Pi hosts
+# ============================================================
+
+# External host monitoring to check if other hosts are responsive
+- name: Import deploy monitoring for external host monitoring
+  ansible.builtin.import_playbook: "{{ inventory_dir }}/common_playbooks/deploy_monitoring.yml"
+  vars:
+    monitoring_name: "external_host_monitor"
+    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/{{host}}/external_host_monitor.sh"
+    cron_minute: "*/10"
+    heartbeat_interval: "daily"
+    notify_fixed: "true"
