@@ -1,6 +1,6 @@
 #!/bin/bash
 # 
-# Script to backup pihole configuration
+# Script to backup pihole configuration using the official Pi-hole Teleporter
 
 set -e          # stop on errors
 set -u          # stop on unset variables
@@ -83,65 +83,59 @@ if [[ $alert_token == --alert=* ]]; then
   alert_token=${alert_token#--alert=}
 fi
 
-# Validate required arguments if not in silent mode
-if [ "$silent_mode" != "true" ] && ([ -z "$logging_token" ] || [ -z "$alert_token" ] || [ -z "$email" ]); then
-  log_msg "${RED}Error: Missing required arguments${NC}"
-  usage
-  exit 1
-elif [ "$silent_mode" == "true" ] && [ -z "$email" ]; then
-  log_msg "${RED}Error: Email address is required even in silent mode${NC}"
+# Validate required arguments
+if [ -z "$email" ]; then
+  log_msg "${RED}Error: Email address is required${NC}"
   usage
   exit 1
 fi
 
-BACKUP_DIR="/tmp/pihole_backup_$(date +%Y%m%d_%H%M%S)"
+# If not in silent mode, webhook tokens are required
+if [ "$silent_mode" != "true" ] && ([ -z "$logging_token" ] || [ -z "$alert_token" ]); then
+  log_msg "${RED}Error: Webhook tokens are required unless --silent is used${NC}"
+  usage
+  exit 1
+fi
+
+# We're using a different approach now, but keeping the same naming convention for compatibility
 BACKUP_FILE="/tmp/pihole_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
 
-# Create temp directory for backup
-log_msg "Creating temp directory for backup"
-mkdir -p "${BACKUP_DIR}" || {
-  log_msg "${RED}Error: Failed to create temp directory: ${BACKUP_DIR}${NC}"
+# No need to create a temp directory anymore as the teleporter command handles this
+
+# Create backup using Pi-hole's official teleporter command
+log_msg "${GREEN}Creating Pi-hole backup using teleporter${NC}"
+TELEPORTER_OUTPUT=$(sudo pihole-FTL --teleporter 2>&1) || {
+  log_msg "${RED}Error: Failed to create teleporter backup${NC}"
+  log_msg "${RED}Error details: ${TELEPORTER_OUTPUT}${NC}"
   exit 1
 }
 
-# Backup pihole configuration files
-log_msg "${GREEN}Backing up pihole configuration files${NC}"
-sudo cp -r /etc/pihole "${BACKUP_DIR}/" || {
-  log_msg "${RED}Error: Failed to copy pihole configuration${NC}"
+# Extract the backup filename from the command output
+BACKUP_FILENAME=$(echo "$TELEPORTER_OUTPUT" | grep -E 'pi-hole.*\.zip$' | tr -d '[:space:]')
+if [ -z "$BACKUP_FILENAME" ]; then
+  log_msg "${RED}Error: Could not determine teleporter backup filename${NC}"
+  log_msg "${RED}Output was: ${TELEPORTER_OUTPUT}${NC}"
   exit 1
-}
-
-sudo cp -r /etc/dnsmasq.d "${BACKUP_DIR}/" || {
-  log_msg "${RED}Error: Failed to copy dnsmasq configuration${NC}"
-  exit 1
-}
-
-# Change ownership and permissions so that ansible user can read/write the files
-log_msg "Setting appropriate permissions"
-sudo chown -R $(whoami):$(whoami) "${BACKUP_DIR}" || {
-  log_msg "${YELLOW}Warning: Failed to change ownership of temp directory${NC}"
-  # Continue anyway, but use sudo for tar command
-}
-
-# Create archive (may need sudo if ownership change failed)
-log_msg "Creating backup archive"
-if [ -w "${BACKUP_DIR}" ]; then
-  tar -czf "${BACKUP_FILE}" -C "${BACKUP_DIR}" . || {
-    log_msg "${RED}Error: Failed to create archive${NC}"
-    exit 1
-  }
-else
-  # Fallback to using sudo for tar if ownership change failed
-  sudo tar -czf "${BACKUP_FILE}" -C "${BACKUP_DIR}" . || {
-    log_msg "${RED}Error: Failed to create archive${NC}"
-    exit 1
-  }
-  # Ensure ansible user can read the archive
-  sudo chown $(whoami):$(whoami) "${BACKUP_FILE}" || {
-    log_msg "${YELLOW}Warning: Failed to change ownership of backup file${NC}"
-    # Continue anyway
-  }
 fi
+
+# Check if the backup file exists and is readable
+if [ ! -f "$BACKUP_FILENAME" ]; then
+  log_msg "${RED}Error: Teleporter backup file not found: ${BACKUP_FILENAME}${NC}"
+  exit 1
+fi
+
+# Move the teleporter backup to our standard location
+log_msg "Moving teleporter backup to ${BACKUP_FILE}"
+mv "$BACKUP_FILENAME" "${BACKUP_FILE}" || {
+  log_msg "${RED}Error: Failed to move teleporter backup${NC}"
+  exit 1
+}
+
+# Ensure ansible user can read the archive
+sudo chown $(whoami):$(whoami) "${BACKUP_FILE}" || {
+  log_msg "${YELLOW}Warning: Failed to change ownership of backup file${NC}"
+  # Continue anyway
+}
 
 log_msg "${GREEN}Created backup archive: ${BACKUP_FILE}${NC}"
 
@@ -196,4 +190,4 @@ fi
 
 # Clean up
 log_msg "Cleaning up temporary files"
-sudo rm -rf "${BACKUP_DIR}" "${BACKUP_FILE}"
+sudo rm -f "${BACKUP_FILE}"
