@@ -19,9 +19,15 @@ run_check() {
     
     echo "Running check: $check_name"
     
-    # Run the check function and capture its output
-    local result=$($check_function)
+    # Use a temporary file to capture the exit status reliably
+    local tmpfile=$(mktemp)
+    
+    # Run the check function and capture both output and exit status
+    # The function will write its output to the temporary file
+    eval "$check_function > $tmpfile"
     local status=$?
+    local result=$(cat "$tmpfile")
+    rm -f "$tmpfile"
     
     # Increment the total number of checks
     total_checks=$((total_checks + 1))
@@ -31,10 +37,14 @@ run_check() {
         failed_checks=$((failed_checks + 1))
         output_summary="$output_summary\n❌ $check_name: $result"
         verbose_output="$verbose_output\n\n--- $check_name DETAILS ---$result"
-        echo "❌ $check_name: $result"
+        # Display the result with proper newlines
+        formatted_result=$(echo "$result" | sed 's/\\n/\n/g')
+        echo -e "❌ $check_name: $formatted_result"
     else
         output_summary="$output_summary\n✅ $check_name: $result"
-        echo "✅ $check_name: $result"
+        # Display the result with proper newlines
+        formatted_result=$(echo "$result" | sed 's/\\n/\n/g')
+        echo -e "✅ $check_name: $formatted_result"
     fi
 }
 
@@ -344,7 +354,8 @@ check_auto_upgrades() {
         else
             # Some issues remain - return a specific error message for run_check to display
             # with the red X
-            echo "Auto-upgrades has $issues_found unresolved issues: $(echo "$summary" | head -n 1 | sed 's/^- //')"
+            # For Slack notifications, keep it brief
+            echo "Auto-upgrades has $issues_found unresolved issues"
             return 1
         fi
     fi
