@@ -37,12 +37,6 @@ if ! arecord -l | grep -q 'card'; then
     ALERTS+=("No audio capture device found")
 fi
 
-# Check CPU usage
-CPU_USAGE=$(top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{print 100 - $1}')
-if (( $(echo "$CPU_USAGE > 80" | bc -l) )); then
-    ALERTS+=("High CPU usage detected: $CPU_USAGE%")
-fi
-
 #############################
 # SECTION 3: STREAM CHECKS #
 #############################
