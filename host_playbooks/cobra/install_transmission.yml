@@ -9,6 +9,12 @@
         state: present
         update_cache: true
 
+    - name: Ensure debian-transmission is in media group
+      ansible.builtin.user:
+        name: debian-transmission
+        groups: media
+        append: true
+
     - name: Stop transmission
       become: true
       ansible.builtin.service:
