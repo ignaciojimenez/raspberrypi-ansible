@@ -1,0 +1,27 @@
+---
+# Internet Speed Monitoring for dockassist Host
+# High-performance implementation with strict thresholds for high-speed connection
+
+- name: Load required variables and install Speedtest CLI on dockassist
+  hosts: all
+  vars_files:
+    - "{{ playbook_dir }}/../../group_vars/all.yaml"
+    - "{{ playbook_dir }}/../../group_vars/all_secrets.yaml"
+  tasks:
+    - name: Set the host fact to inventory_hostname
+      ansible.builtin.set_fact:
+        host: "{{ inventory_hostname }}"
+
+- name: Install Ookla Speedtest CLI on dockassist
+  ansible.builtin.import_playbook: "{{ playbook_dir }}/../../common_playbooks/install_speedtest.yml"
+
+- name: Setup Internet Speed Monitoring on dockassist
+  ansible.builtin.import_playbook: "{{ playbook_dir }}/../../common_playbooks/setup_internet_speed_monitoring.yml"
+  vars:
+    speed_monitoring_name: "dockassist_internet_speed"
+    min_download_mbps: 850       # High-performance threshold for download speed
+    min_upload_mbps: 850         # High-performance threshold for upload speed
+    max_ping_ms: 15              # Strict latency threshold for high-speed connection
+    speed_check_schedule: "0 */6 * * *"  # Every 6 hours
+    heartbeat_interval: "daily"
+    notify_fixed: "true"

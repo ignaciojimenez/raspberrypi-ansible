@@ -26,3 +26,7 @@
 # Import host-specific health checks and maintenance tasks for dockassist
 - name: Import dockassist health checks and maintenance tasks
   ansible.builtin.import_playbook: "{{host}}/dockassist_health_and_maintenance.yml"
+
+# Import internet speed monitoring for dockassist
+- name: Import internet speed monitoring for dockassist
+  ansible.builtin.import_playbook: "{{host}}/dockassist_speed_monitoring.yml"
