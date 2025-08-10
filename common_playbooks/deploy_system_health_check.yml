@@ -1,0 +1,21 @@
+---
+# Deploy updated system health check script
+- name: Deploy system health check script
+  hosts: all
+  become: true
+  tasks:
+    - name: Copy updated system health check script
+      ansible.builtin.copy:
+        src: ../common_scripts/system_health_check.sh
+        dest: /home/choco/.scripts/system_health_check.sh
+        owner: choco
+        group: choco
+        mode: '0755'
+        backup: yes
+
+    - name: Verify script is executable
+      ansible.builtin.file:
+        path: /home/choco/.scripts/system_health_check.sh
+        mode: '0755'
+        owner: choco
+        group: choco

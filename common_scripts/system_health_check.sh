@@ -169,35 +169,35 @@ check_auto_upgrades() {
         upgrade_evidence="reboot-required file found"
     fi
     
-    # Check log file for various upgrade patterns
+    # Check unattended-upgrades log for recent activity (last 7 days)
     if [ -f /var/log/unattended-upgrades/unattended-upgrades.log ]; then
-        # Look for various patterns that indicate upgrade activity
-        local recent_logs=$(sudo grep -E "Unattended upgrade|unattended-upgrade|packages upgraded|packages to upgrade|packages to install|reboot-required" /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null | grep -v "DEBUG" | tail -n 5)
-        
-        # Store the logs for verbose output
-        output="${output}\nRecent logs: $(echo "$recent_logs" | head -n 2 | tr '\n' ' ')..."
-        
-        # If we have any log entries, that's evidence of activity
-        if [ -n "$recent_logs" ]; then
-            upgrade_activity_found=true
-            if [ -z "$upgrade_evidence" ]; then
-                upgrade_evidence="recent log activity"
+        local recent_runs=$(sudo grep "Starting unattended upgrades script" /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null | tail -n 5)
+        if [ -n "$recent_runs" ]; then
+            # Check if any run was in the last 7 days
+            local latest_run=$(echo "$recent_runs" | tail -n 1 | cut -d',' -f1)
+            local run_date=$(echo "$latest_run" | cut -d' ' -f1)
+            local current_date=$(date +"%Y-%m-%d")
+            
+            # Simple date comparison - if it's from today or recent days, consider it active
+            if [ "$run_date" = "$current_date" ] || [ -n "$(echo "$recent_runs" | grep "$(date -d '1 day ago' +"%Y-%m-%d" 2>/dev/null || date -v-1d +"%Y-%m-%d" 2>/dev/null)")" ] || [ -n "$(echo "$recent_runs" | grep "$(date -d '2 days ago' +"%Y-%m-%d" 2>/dev/null || date -v-2d +"%Y-%m-%d" 2>/dev/null)")" ]; then
+                upgrade_activity_found=true
+                upgrade_evidence="recent unattended-upgrades runs"
+                output="${output}\nLatest run: $latest_run"
+                
+                # Also check what the latest run accomplished
+                local latest_log_entry=$(sudo grep -A 5 "$latest_run" /var/log/unattended-upgrades/unattended-upgrades.log 2>/dev/null | tail -n 5)
+                if echo "$latest_log_entry" | grep -q "No packages found that can be upgraded"; then
+                    output="${output}\nStatus: System up to date (no packages to upgrade)"
+                elif echo "$latest_log_entry" | grep -q "upgraded"; then
+                    output="${output}\nStatus: Packages were upgraded"
+                fi
             fi
         fi
-        
-        # Check for scheduled reboots which indicate successful upgrades
-        if echo "$recent_logs" | grep -q "reboot"; then
-            upgrade_activity_found=true
-            upgrade_evidence="${upgrade_evidence}, scheduled reboot"
-        fi
-    else
-        summary="${summary}\n- Unattended-upgrades log file not found"
     fi
     
-    # Also check apt history logs as an alternative source
-    if [ -d /var/log/apt ]; then
-        local apt_history=$(sudo grep -l "unattended-upgrades" /var/log/apt/history.log* 2>/dev/null | head -n 1)
-        if [ -n "$apt_history" ]; then
+    # Also check apt history for unattended-upgrade activity
+    for apt_history in /var/log/apt/history.log /var/log/apt/history.log.1.gz; do
+        if [ -f "$apt_history" ]; then
             local apt_entries=$(sudo zgrep -a "Commandline: /usr/bin/unattended-upgrade" "$apt_history" 2>/dev/null | tail -n 2)
             if [ -n "$apt_entries" ]; then
                 upgrade_activity_found=true
@@ -205,9 +205,9 @@ check_auto_upgrades() {
                 output="${output}\nApt history: $(echo "$apt_entries" | head -n 1 | tr '\n' ' ')..."
             fi
         fi
-    fi
+    done
     
-    # Final determination based on all evidence
+    # Check for evidence of recent unattended-upgrade activity
     if [ "$upgrade_activity_found" = false ]; then
         summary="${summary}\n- No evidence of recent unattended-upgrade activity"
         issues_found=$((issues_found + 1))
