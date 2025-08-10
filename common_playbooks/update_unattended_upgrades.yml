@@ -1,0 +1,122 @@
+---
+# update_unattended_upgrades.yml
+# This playbook updates the unattended-upgrades configuration to include all repositories
+# and fixes common issues with unattended-upgrades across all hosts
+
+- name: Update unattended-upgrades configuration
+  hosts: all
+  become: true
+  tasks:
+    - name: Check if unattended-upgrades is installed
+      command: dpkg-query -W -f='${Status}' unattended-upgrades
+      register: unattended_upgrades_check
+      failed_when: false
+      changed_when: false
+      check_mode: no
+
+    - name: Ensure required packages are installed
+      apt:
+        name:
+          - unattended-upgrades
+          - apt-listchanges
+        state: present
+        update_cache: yes
+
+    - name: Check for pending updates
+      shell: apt-get -s upgrade | grep -c ^Inst || true
+      register: pending_updates
+      changed_when: false
+      check_mode: no
+
+    - name: Display number of pending updates
+      debug:
+        msg: "{{ pending_updates.stdout }} updates pending on {{ inventory_hostname }}"
+
+    - name: Get all repository origins
+      shell: grep -h ^deb /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null | awk '{print $2}' | sort | uniq
+      register: repo_sources
+      changed_when: false
+      check_mode: no
+      ignore_errors: yes
+
+    - name: Get all repository origins from policy
+      shell: apt-cache policy | grep -i origin | sed 's/.*origin //g' | sort | uniq
+      register: repo_origins
+      changed_when: false
+      check_mode: no
+
+    - name: Display detected repository origins
+      debug:
+        var: repo_origins.stdout_lines
+
+    - name: Check current unattended-upgrades configuration
+      command: cat /etc/apt/apt.conf.d/50unattended-upgrades
+      register: current_config
+      changed_when: false
+      check_mode: no
+
+    - name: Backup original unattended-upgrades configuration
+      copy:
+        src: /etc/apt/apt.conf.d/50unattended-upgrades
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades.bak.{{ ansible_date_time.date }}
+        remote_src: yes
+      when: current_config.stdout | length > 0
+
+    - name: Copy updated unattended-upgrades configuration from common_files
+      copy:
+        src: ../common_files/50unattended-upgrades
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        mode: "0644"
+        backup: yes
+
+    - name: Ensure unattended-upgrades is configured to install security updates
+      lineinfile:
+        path: /etc/apt/apt.conf.d/50unattended-upgrades
+        regexp: '//\s*"origin=Debian,codename=\${distro_codename}-security";'
+        line: '"origin=Debian,codename=${distro_codename}-security";'
+        backrefs: yes
+
+    - name: Ensure unattended-upgrades is configured to install updates from all origins
+      ansible.builtin.copy:
+        src: ../common_files/50unattended-upgrades
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
+
+    - name: Enable unattended-upgrades service
+      ansible.builtin.systemd:
+        name: unattended-upgrades.service
+        enabled: true
+        state: restarted
+      ignore_errors: true  # Some older systems might not use systemd
+
+    - name: Run unattended-upgrade manually to verify configuration
+      ansible.builtin.command: unattended-upgrade --dry-run --debug
+      register: upgrade_check
+      changed_when: false
+
+    - name: Show update check results
+      ansible.builtin.debug:
+        var: upgrade_check.stdout_lines
+
+    - name: Verify unattended-upgrades is working correctly
+      shell: |
+        if echo "{{ upgrade_check.stdout }}" | grep -q "No packages found that can be upgraded unattended"; then
+          if [ {{ pending_updates.stdout }} -gt 0 ]; then
+            echo "WARNING: There are {{ pending_updates.stdout }} pending updates but unattended-upgrades is not finding any packages to upgrade"
+            exit 1
+          else
+            echo "No pending updates, configuration looks good"
+          fi
+        else
+          echo "Unattended-upgrades found packages to upgrade, configuration looks good"
+        fi
+      register: verification
+      changed_when: false
+      failed_when: verification.rc != 0
+      
+    - name: Display verification results
+      debug:
+        var: verification.stdout_lines
