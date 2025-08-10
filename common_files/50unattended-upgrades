@@ -6,8 +6,11 @@ Unattended-Upgrade::Origins-Pattern {
         // Raspbian and Raspberry Pi Foundation repositories
         "origin=Raspbian,codename=${distro_codename},label=Raspbian";
         "origin=Raspberry Pi Foundation,codename=${distro_codename},label=Raspberry Pi Foundation";
+        "origin=Raspberry Pi,codename=${distro_codename}";
+        "origin=archive.raspberrypi.org";
+        "origin=archive.raspberrypi.com";
         
-        // Debian security and updates repositories
+        // Debian security and updates repositories for both bookworm and bullseye
         "origin=Debian,codename=${distro_codename},label=Debian-Security";
         "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
         "origin=Debian,codename=${distro_codename}-updates,label=Debian";
@@ -16,6 +19,24 @@ Unattended-Upgrade::Origins-Pattern {
         "origin=Debian,codename=oldstable,label=Debian-Security";
         "origin=Debian,codename=oldstable-security,label=Debian-Security";
         "origin=Debian,codename=oldstable-updates,label=Debian";
+        
+        // Third-party repositories found on various hosts
+        "origin=MongoDB";
+        "origin=repo.mongodb.org";
+        "origin=GlennR";
+        "origin=apt.glennr.nl";
+        "origin=Adoptium";
+        "origin=packages.adoptium.net";
+        "origin=Plex";
+        "origin=downloads.plex.tv";
+        "origin=Docker";
+        "origin=download.docker.com";
+        "origin=dtcooper.github.io";
+        "origin=Raspotify";
+        
+        // Catch-all pattern for any other repositories
+        // This will include any repository that doesn't match the above patterns
+        "origin=*";
 };
 
 // Automatically reboot *WITHOUT CONFIRMATION* if
@@ -29,3 +50,14 @@ Unattended-Upgrade::Automatic-Reboot-Time "04:00";
 
 // Remove unused dependencies from the upgrade process
 Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+// Package blacklist: packages that should *never* be automatically upgraded
+Unattended-Upgrade::Package-Blacklist {
+        // Docker packages - critical for Home Assistant, update manually
+        "docker-ce";
+        "docker-ce-cli";
+        "docker-ce-rootless-extras";
+        "docker-compose-plugin";
+        "docker-buildx-plugin";
+        "containerd.io";
+};
