@@ -11,3 +11,7 @@
 # Import host-specific health checks and maintenance tasks for pihole
 - name: Import pihole health checks and maintenance tasks
   ansible.builtin.import_playbook: "{{host}}/pihole_health_and_maintenance.yml"
+
+# Import internet speed monitoring for pihole
+- name: Import internet speed monitoring for pihole
+  ansible.builtin.import_playbook: "{{host}}/pihole_speed_monitoring.yml"

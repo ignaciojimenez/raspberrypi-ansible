@@ -1,0 +1,94 @@
+#!/bin/bash
+#
+# Test Internet Speed Monitor
+# Simple test script to verify the speed monitoring functionality
+#
+# Usage: test_speed_monitor [--verbose]
+
+set -e
+
+VERBOSE=false
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --verbose)
+            VERBOSE=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--verbose]"
+            echo "Tests the internet speed monitoring script functionality"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Function for logging
+log_msg() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+SCRIPT_DIR="$(dirname "$0")"
+SPEED_MONITOR="$SCRIPT_DIR/internet_speed_monitor"
+
+log_msg "Testing Internet Speed Monitor..."
+
+# Check if script exists
+if [ ! -f "$SPEED_MONITOR" ]; then
+    echo "ERROR: Speed monitor script not found at $SPEED_MONITOR"
+    exit 1
+fi
+
+# Check if script is executable
+if [ ! -x "$SPEED_MONITOR" ]; then
+    echo "ERROR: Speed monitor script is not executable"
+    exit 1
+fi
+
+# Test 1: Help output
+log_msg "Test 1: Checking help output..."
+if [ "$VERBOSE" = "true" ]; then
+    "$SPEED_MONITOR" --help
+else
+    "$SPEED_MONITOR" --help > /dev/null
+fi
+echo "✅ Help output works"
+
+# Test 2: Check speedtest availability
+log_msg "Test 2: Checking speedtest CLI availability..."
+if command -v speedtest >/dev/null 2>&1; then
+    echo "✅ Speedtest CLI is available"
+    if [ "$VERBOSE" = "true" ]; then
+        speedtest --version
+    fi
+else
+    echo "❌ Speedtest CLI is not installed"
+    echo "Run the install_speedtest.yml playbook first"
+    exit 1
+fi
+
+# Test 3: Run speed test with very lenient thresholds (should pass)
+log_msg "Test 3: Running speed test with lenient thresholds..."
+if [ "$VERBOSE" = "true" ]; then
+    "$SPEED_MONITOR" --min-download=1 --min-upload=1 --max-ping=1000
+else
+    "$SPEED_MONITOR" --min-download=1 --min-upload=1 --max-ping=1000 --silent
+fi
+echo "✅ Speed test with lenient thresholds completed"
+
+# Test 4: Run speed test with strict thresholds (may fail, but should not error)
+log_msg "Test 4: Running speed test with strict thresholds..."
+if [ "$VERBOSE" = "true" ]; then
+    "$SPEED_MONITOR" --min-download=1000 --min-upload=1000 --max-ping=1 || echo "Expected failure with strict thresholds"
+else
+    "$SPEED_MONITOR" --min-download=1000 --min-upload=1000 --max-ping=1 --silent || echo "Expected failure with strict thresholds"
+fi
+echo "✅ Speed test with strict thresholds completed (failure expected)"
+
+log_msg "All tests completed successfully!"
+log_msg "The internet speed monitor is ready for deployment."

@@ -1,0 +1,163 @@
+#!/bin/bash
+#
+# Internet Speed Monitor
+# Monitors internet speed using Ookla Speedtest CLI and alerts on significant drops
+#
+# Usage: internet_speed_monitor [--min-download=MBPS] [--min-upload=MBPS] [--max-ping=MS] [--silent]
+#
+# Parameters:
+#   --min-download=MBPS  Minimum acceptable download speed in Mbps (default: 50)
+#   --min-upload=MBPS    Minimum acceptable upload speed in Mbps (default: 10)
+#   --max-ping=MS        Maximum acceptable ping in milliseconds (default: 100)
+#   --silent             Suppress non-error output
+#
+# Exit codes:
+#   0 - Speed test passed all thresholds
+#   1 - Speed test failed one or more thresholds
+#   2 - Speedtest command failed or not available
+
+set -u
+set -o pipefail
+
+# Default thresholds
+MIN_DOWNLOAD=300
+MIN_UPLOAD=150
+MAX_PING=100
+SILENT=false
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --min-download=*)
+            MIN_DOWNLOAD="${1#*=}"
+            shift
+            ;;
+        --min-upload=*)
+            MIN_UPLOAD="${1#*=}"
+            shift
+            ;;
+        --max-ping=*)
+            MAX_PING="${1#*=}"
+            shift
+            ;;
+        --silent)
+            SILENT=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--min-download=MBPS] [--min-upload=MBPS] [--max-ping=MS] [--silent]"
+            echo ""
+            echo "Default thresholds:"
+            echo "  Download: ${MIN_DOWNLOAD} Mbps"
+            echo "  Upload: ${MIN_UPLOAD} Mbps"
+            echo "  Ping: ${MAX_PING} ms"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            exit 2
+            ;;
+    esac
+done
+
+# Function for logging (respects silent mode)
+log_msg() {
+    if [ "$SILENT" = "false" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    fi
+}
+
+# Function for error logging (always shown)
+error_msg() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $1" >&2
+}
+
+# Check if speedtest is available
+if ! command -v speedtest >/dev/null 2>&1; then
+    error_msg "Speedtest CLI is not installed or not in PATH"
+    exit 2
+fi
+
+log_msg "Starting internet speed test..."
+log_msg "Thresholds: Download ≥${MIN_DOWNLOAD} Mbps, Upload ≥${MIN_UPLOAD} Mbps, Ping ≤${MAX_PING} ms"
+
+# Run speedtest and capture JSON output
+if ! speedtest_output=$(speedtest --accept-license --accept-gdpr --format=json 2>&1); then
+    error_msg "Speedtest command failed: $speedtest_output"
+    exit 2
+fi
+
+# Parse JSON results using jq (fallback to basic parsing if jq not available)
+if command -v jq >/dev/null 2>&1; then
+    download_mbps=$(echo "$speedtest_output" | jq -r '.download.bandwidth // 0' | awk '{printf "%.2f", $1 * 8 / 1000000}')
+    upload_mbps=$(echo "$speedtest_output" | jq -r '.upload.bandwidth // 0' | awk '{printf "%.2f", $1 * 8 / 1000000}')
+    ping_ms=$(echo "$speedtest_output" | jq -r '.ping.latency // 0')
+    server_name=$(echo "$speedtest_output" | jq -r '.server.name // "Unknown"')
+    server_location=$(echo "$speedtest_output" | jq -r '.server.location // "Unknown"')
+    isp=$(echo "$speedtest_output" | jq -r '.isp // "Unknown"')
+else
+    # Fallback parsing without jq (basic regex extraction)
+    download_bps=$(echo "$speedtest_output" | grep -o '"bandwidth":[0-9]*' | head -1 | cut -d: -f2)
+    upload_bps=$(echo "$speedtest_output" | grep -o '"bandwidth":[0-9]*' | tail -1 | cut -d: -f2)
+    download_mbps=$(echo "scale=2; $download_bps * 8 / 1000000" | bc -l 2>/dev/null || echo "0")
+    upload_mbps=$(echo "scale=2; $upload_bps * 8 / 1000000" | bc -l 2>/dev/null || echo "0")
+    ping_ms=$(echo "$speedtest_output" | grep -o '"latency":[0-9.]*' | head -1 | cut -d: -f2)
+    server_name="Unknown"
+    server_location="Unknown"
+    isp="Unknown"
+fi
+
+# Validate parsed values
+if [ -z "$download_mbps" ] || [ -z "$upload_mbps" ] || [ -z "$ping_ms" ]; then
+    error_msg "Failed to parse speedtest results"
+    error_msg "Raw output: $speedtest_output"
+    exit 2
+fi
+
+# Convert to numeric for comparison (handle decimal points)
+download_int=$(echo "$download_mbps" | cut -d. -f1)
+upload_int=$(echo "$upload_mbps" | cut -d. -f1)
+ping_int=$(echo "$ping_ms" | cut -d. -f1)
+
+# Check thresholds
+issues=()
+status="PASS"
+
+if [ "$download_int" -lt "$MIN_DOWNLOAD" ]; then
+    issues+=("Download speed ${download_mbps} Mbps is below threshold of ${MIN_DOWNLOAD} Mbps")
+    status="FAIL"
+fi
+
+if [ "$upload_int" -lt "$MIN_UPLOAD" ]; then
+    issues+=("Upload speed ${upload_mbps} Mbps is below threshold of ${MIN_UPLOAD} Mbps")
+    status="FAIL"
+fi
+
+if [ "$ping_int" -gt "$MAX_PING" ]; then
+    issues+=("Ping ${ping_ms} ms is above threshold of ${MAX_PING} ms")
+    status="FAIL"
+fi
+
+# Generate report
+if [ "$SILENT" = "false" ]; then
+    log_msg "Speed test completed"
+    log_msg "Server: $server_name, $server_location"
+    log_msg "ISP: $isp"
+    log_msg "Results: Download ${download_mbps} Mbps, Upload ${upload_mbps} Mbps, Ping ${ping_ms} ms"
+fi
+
+if [ "$status" = "PASS" ]; then
+    if [ "$SILENT" = "false" ]; then
+        log_msg "✅ All speed thresholds met"
+    else
+        # Even in silent mode, provide minimal success output for monitoring
+        echo "✅ Speed test passed: Download ${download_mbps} Mbps, Upload ${upload_mbps} Mbps, Ping ${ping_ms} ms"
+    fi
+    exit 0
+else
+    error_msg "❌ Speed test failed - ${#issues[@]} issue(s) detected:"
+    for issue in "${issues[@]}"; do
+        error_msg "  - $issue"
+    done
+    exit 1
+fi

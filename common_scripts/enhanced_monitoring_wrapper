@@ -169,7 +169,11 @@ send_slack_notification() {
   echo "${json_payload}" > /tmp/slack_payload_debug.json
   
   # Log the payload for debugging (without sensitive information)
-  log_msg "Sending notification to Slack${is_alert:+ (ALERT)}"
+  if [ "$is_alert" = "true" ]; then
+    log_msg "Sending notification to Slack (ALERT)"
+  else
+    log_msg "Sending notification to Slack (MONITORING)"
+  fi
   
   # Send to Slack with proper Content-Type header
   local response=$(curl -s -X POST -H 'Content-type: application/json; charset=utf-8' --data "${json_payload}" "${webhook_url}" || echo "Failed to send notification")

@@ -1,0 +1,27 @@
+---
+# Internet Speed Monitoring for devpi (Development Host)
+# Test implementation of speed monitoring before production deployment
+
+- name: Load required variables and install Speedtest CLI on devpi
+  hosts: all
+  vars_files:
+    - "{{ playbook_dir }}/../../group_vars/all.yaml"
+    - "{{ playbook_dir }}/../../group_vars/all_secrets.yaml"
+  tasks:
+    - name: Set the host fact to inventory_hostname
+      ansible.builtin.set_fact:
+        host: "{{ inventory_hostname }}"
+
+- name: Install Ookla Speedtest CLI on devpi
+  ansible.builtin.import_playbook: "{{ playbook_dir }}/../../common_playbooks/install_speedtest.yml"
+
+- name: Setup Internet Speed Monitoring on devpi
+  ansible.builtin.import_playbook: "{{ playbook_dir }}/../../common_playbooks/setup_internet_speed_monitoring.yml"
+  vars:
+    speed_monitoring_name: "devpi_internet_speed"
+    min_download_mbps: 25        # Lower threshold for development testing
+    min_upload_mbps: 5           # Lower threshold for development testing
+    max_ping_ms: 150             # Higher tolerance for development testing
+    speed_check_schedule: "0 */2 * * *"  # Every 2 hours for testing
+    heartbeat_interval: "daily"
+    notify_fixed: "true"

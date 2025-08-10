@@ -1,0 +1,54 @@
+---
+# Install Ookla Speedtest CLI
+# Generic playbook to install the official Ookla speedtest command-line tool
+
+- name: Install Ookla Speedtest CLI
+  hosts: all
+  become: true
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all.yaml"
+    - "{{ playbook_dir }}/../group_vars/all_secrets.yaml"
+  tasks:
+    - name: Download Ookla repository setup script
+      ansible.builtin.get_url:
+        url: https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh
+        dest: /tmp/speedtest-repo-setup.sh
+        mode: '0755'
+        timeout: 30
+
+    - name: Execute repository setup script
+      ansible.builtin.shell: |
+        bash /tmp/speedtest-repo-setup.sh
+      args:
+        creates: /etc/apt/sources.list.d/ookla_speedtest-cli.list
+
+    - name: Update package cache after adding repository
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Install speedtest CLI
+      ansible.builtin.apt:
+        name: speedtest
+        state: present
+
+    - name: Clean up temporary repository setup script
+      ansible.builtin.file:
+        path: /tmp/speedtest-repo-setup.sh
+        state: absent
+
+    - name: Accept speedtest license and GDPR terms (first run)
+      ansible.builtin.shell: |
+        speedtest --accept-license --accept-gdpr --format=json > /dev/null 2>&1 || true
+      become_user: "{{ ansible_user_id }}"
+      changed_when: false
+
+    - name: Verify speedtest installation
+      ansible.builtin.shell: |
+        speedtest --version
+      become_user: "{{ ansible_user_id }}"
+      register: speedtest_version
+      changed_when: false
+
+    - name: Display speedtest version
+      ansible.builtin.debug:
+        msg: "Speedtest CLI installed successfully: {{ speedtest_version.stdout }}"

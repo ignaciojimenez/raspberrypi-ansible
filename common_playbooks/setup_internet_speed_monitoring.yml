@@ -1,0 +1,124 @@
+---
+# Internet Speed Monitoring Setup
+# Generic playbook to set up internet speed monitoring with configurable thresholds
+#
+# USAGE:
+# Import this playbook in your host-specific playbook to set up speed monitoring.
+# Example:
+#
+# ```yaml
+# - name: Import internet speed monitoring setup
+#   ansible.builtin.import_playbook: "../common_playbooks/setup_internet_speed_monitoring.yml"
+#   vars:
+#     speed_monitoring_name: "internet_speed_check"     # REQUIRED: Name for the monitoring job
+#     min_download_mbps: 50                             # Optional: Minimum download speed (default: 50)
+#     min_upload_mbps: 10                               # Optional: Minimum upload speed (default: 10)
+#     max_ping_ms: 100                                  # Optional: Maximum ping latency (default: 100)
+#     speed_check_schedule: "0 */6 * * *"               # Optional: Cron schedule (default: every 6 hours)
+# ```
+#
+# AVAILABLE OPTIONS:
+#
+# Required Variables:
+# - speed_monitoring_name: Name for the monitoring job and log files
+#
+# Optional Variables with defaults:
+# - min_download_mbps: Minimum acceptable download speed in Mbps (default: 50)
+# - min_upload_mbps: Minimum acceptable upload speed in Mbps (default: 10)
+# - max_ping_ms: Maximum acceptable ping in milliseconds (default: 100)
+# - speed_check_schedule: Cron schedule for speed checks (default: "0 */6 * * *" - every 6 hours)
+# - heartbeat_interval: How often to send success notifications (default: "daily")
+# - notify_fixed: Whether to notify when issues are self-healed (default: "true")
+#
+
+- name: Setup Internet Speed Monitoring
+  hosts: all
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all.yaml"
+    - "{{ playbook_dir }}/../group_vars/all_secrets.yaml"
+  tasks:
+    - name: Ensure required variables are defined
+      ansible.builtin.fail:
+        msg: "Required variable '{{ item }}' is not defined"
+      when: item is not defined
+      with_items:
+        - speed_monitoring_name
+        - logs_dir
+        - scripts_dir
+        - logging_token
+        - alert_token
+
+    - name: Set default speed thresholds
+      ansible.builtin.set_fact:
+        effective_min_download: "{{ min_download_mbps | default(50) }}"
+        effective_min_upload: "{{ min_upload_mbps | default(10) }}"
+        effective_max_ping: "{{ max_ping_ms | default(100) }}"
+        effective_schedule: "{{ speed_check_schedule | default('0 */6 * * *') }}"
+
+    - name: Ensure scripts directory exists
+      ansible.builtin.file:
+        path: "{{ scripts_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Ensure logs directory exists
+      ansible.builtin.file:
+        path: "{{ logs_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Install required packages for speed monitoring
+      become: true
+      ansible.builtin.apt:
+        name:
+          - jq
+          - bc
+          - curl
+        state: present
+
+    - name: Copy internet speed monitoring script
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../common_scripts/internet_speed_monitor"
+        dest: "{{ scripts_dir }}/internet_speed_monitor"
+        mode: '0755'
+
+    - name: Copy enhanced monitoring wrapper
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../common_scripts/enhanced_monitoring_wrapper"
+        dest: "{{ scripts_dir }}/enhanced_monitoring_wrapper"
+        mode: '0755'
+
+    - name: Parse cron schedule
+      ansible.builtin.set_fact:
+        cron_parts: "{{ effective_schedule.split(' ') }}"
+
+    - name: Set up cron job for internet speed monitoring
+      ansible.builtin.cron:
+        name: "{{ speed_monitoring_name }}"
+        job: >-
+          {{ scripts_dir }}/enhanced_monitoring_wrapper
+          --heartbeat-interval={{ heartbeat_interval | default('daily') }}
+          --notify-fixed={{ notify_fixed | default('true') }}
+          --monitoring-name={{ speed_monitoring_name }}
+          {{ logging_token }}
+          {{ alert_token }}
+          {{ scripts_dir }}/internet_speed_monitor
+          --min-download={{ effective_min_download }}
+          --min-upload={{ effective_min_upload }}
+          --max-ping={{ effective_max_ping }}
+          --silent
+          >> {{ logs_dir }}/{{ speed_monitoring_name }}.log 2>&1
+        minute: "{{ cron_parts[0] }}"
+        hour: "{{ cron_parts[1] }}"
+        day: "{{ cron_parts[2] }}"
+        month: "{{ cron_parts[3] }}"
+        weekday: "{{ cron_parts[4] }}"
+
+    - name: Display monitoring setup summary
+      ansible.builtin.debug:
+        msg: |
+          Internet speed monitoring configured:
+          - Name: {{ speed_monitoring_name }}
+          - Thresholds: Download ≥{{ effective_min_download }} Mbps, Upload ≥{{ effective_min_upload }} Mbps, Ping ≤{{ effective_max_ping }} ms
+          - Schedule: {{ effective_schedule }}
+          - Log file: {{ logs_dir }}/{{ speed_monitoring_name }}.log
