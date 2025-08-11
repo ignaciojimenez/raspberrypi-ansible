@@ -1,6 +1,9 @@
 ---
 - name: Create script folder and move scripts playbook
   hosts: all
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all.yaml"
+    - "{{ playbook_dir }}/../group_vars/all_secrets.yaml"
   tasks:
     - name: Creates script dir
       ansible.builtin.file:
@@ -14,4 +17,4 @@
         dest: "{{ scripts_dir }}/"
         mode: preserve
         backup: true
-        force: false
+        force: true
