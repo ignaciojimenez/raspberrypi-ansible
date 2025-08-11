@@ -1,6 +1,9 @@
 ---
 - name: Harden users and ssh
   hosts: all
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all.yaml"
+    - "{{ playbook_dir }}/../group_vars/all_secrets.yaml"
   vars:
     update_key_script: "/usr/local/bin/update_keys"
   tasks:

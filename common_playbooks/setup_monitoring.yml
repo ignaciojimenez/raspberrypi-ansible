@@ -2,6 +2,9 @@
 # Setup monitoring infrastructure including log directories, cron jobs, and log rotation
 - name: Setup monitoring infrastructure
   hosts: all
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all.yaml"
+    - "{{ playbook_dir }}/../group_vars/all_secrets.yaml"
   tasks:
     - name: Ensure required variables are defined
       ansible.builtin.fail:

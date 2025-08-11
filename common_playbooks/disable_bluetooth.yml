@@ -2,6 +2,9 @@
 - name: Disable bluetooth playbook
   hosts: all
   become: true
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all.yaml"
+    - "{{ playbook_dir }}/../group_vars/all_secrets.yaml"
   tasks:
     - name: Disable Bluetooth related services
       ansible.builtin.systemd:

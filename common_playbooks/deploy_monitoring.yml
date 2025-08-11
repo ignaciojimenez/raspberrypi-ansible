@@ -44,6 +44,9 @@
 
 - name: Deploy  monitring
   hosts: all
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all.yaml"
+    - "{{ playbook_dir }}/../group_vars/all_secrets.yaml"
   tasks:
     - name: Set monitoring script path
       ansible.builtin.set_fact:

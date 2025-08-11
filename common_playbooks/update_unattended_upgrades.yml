@@ -6,13 +6,16 @@
 - name: Update unattended-upgrades configuration
   hosts: all
   become: true
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all.yaml"
+    - "{{ playbook_dir }}/../group_vars/all_secrets.yaml"
   tasks:
     - name: Check if unattended-upgrades is installed
       command: dpkg-query -W -f='${Status}' unattended-upgrades
       register: unattended_upgrades_check
       failed_when: false
       changed_when: false
-      check_mode: no
+      check_mode: false
 
     - name: Ensure required packages are installed
       apt:
@@ -20,13 +23,13 @@
           - unattended-upgrades
           - apt-listchanges
         state: present
-        update_cache: yes
+        update_cache: true
 
     - name: Check for pending updates
       shell: apt-get -s upgrade | grep -c ^Inst || true
       register: pending_updates
       changed_when: false
-      check_mode: no
+      check_mode: false
 
     - name: Display number of pending updates
       debug:
@@ -36,14 +39,14 @@
       shell: grep -h ^deb /etc/apt/sources.list /etc/apt/sources.list.d/*.list 2>/dev/null | awk '{print $2}' | sort | uniq
       register: repo_sources
       changed_when: false
-      check_mode: no
-      ignore_errors: yes
+      check_mode: false
+      ignore_errors: true
 
     - name: Get all repository origins from policy
       shell: apt-cache policy | grep -i origin | sed 's/.*origin //g' | sort | uniq
       register: repo_origins
       changed_when: false
-      check_mode: no
+      check_mode: false
 
     - name: Display detected repository origins
       debug:
@@ -53,13 +56,13 @@
       command: cat /etc/apt/apt.conf.d/50unattended-upgrades
       register: current_config
       changed_when: false
-      check_mode: no
+      check_mode: false
 
     - name: Backup original unattended-upgrades configuration
       copy:
         src: /etc/apt/apt.conf.d/50unattended-upgrades
         dest: /etc/apt/apt.conf.d/50unattended-upgrades.bak.{{ ansible_date_time.date }}
-        remote_src: yes
+        remote_src: true
       when: current_config.stdout | length > 0
 
     - name: Copy updated unattended-upgrades configuration from common_files
@@ -67,14 +70,14 @@
         src: ../common_files/50unattended-upgrades
         dest: /etc/apt/apt.conf.d/50unattended-upgrades
         mode: "0644"
-        backup: yes
+        backup: true
 
     - name: Ensure unattended-upgrades is configured to install security updates
-      lineinfile:
+      ansible.builtin.lineinfile:
         path: /etc/apt/apt.conf.d/50unattended-upgrades
         regexp: '//\s*"origin=Debian,codename=\${distro_codename}-security";'
         line: '"origin=Debian,codename=${distro_codename}-security";'
-        backrefs: yes
+        backrefs: true
 
     - name: Ensure unattended-upgrades is configured to install updates from all origins
       ansible.builtin.copy:
@@ -83,7 +86,7 @@
         owner: root
         group: root
         mode: '0644'
-        backup: yes
+        backup: true
 
     - name: Enable unattended-upgrades service
       ansible.builtin.systemd:
@@ -116,7 +119,7 @@
       register: verification
       changed_when: false
       failed_when: verification.rc != 0
-      
+
     - name: Display verification results
       debug:
         var: verification.stdout_lines

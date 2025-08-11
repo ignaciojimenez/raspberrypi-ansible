@@ -3,19 +3,22 @@
 - name: Deploy system health check script
   hosts: all
   become: true
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all.yaml"
+    - "{{ playbook_dir }}/../group_vars/all_secrets.yaml"
   tasks:
     - name: Copy updated system health check script
       ansible.builtin.copy:
         src: ../common_scripts/system_health_check.sh
-        dest: /home/choco/.scripts/system_health_check.sh
+        dest: "{{ scripts_dir }}/system_health_check.sh"
         owner: choco
         group: choco
         mode: '0755'
-        backup: yes
+        backup: true
 
     - name: Verify script is executable
       ansible.builtin.file:
-        path: /home/choco/.scripts/system_health_check.sh
+        path: "{{ scripts_dir }}/system_health_check.sh"
         mode: '0755'
         owner: choco
         group: choco

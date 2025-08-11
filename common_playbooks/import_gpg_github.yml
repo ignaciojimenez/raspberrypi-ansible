@@ -2,6 +2,9 @@
 - name: Import GPG key from GitHub
   hosts: all
   gather_facts: true
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all.yaml"
+    - "{{ playbook_dir }}/../group_vars/all_secrets.yaml"
   tasks:
     - name: Import key from GitHub
       ansible.builtin.shell: |

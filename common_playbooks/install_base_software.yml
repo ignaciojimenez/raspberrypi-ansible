@@ -2,6 +2,9 @@
 # Install and configure base software packages and git configuration
 - name: Install and configure base software
   hosts: all
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/all.yaml"
+    - "{{ playbook_dir }}/../group_vars/all_secrets.yaml"
   tasks:
     - name: Install packages
       become: true
