@@ -23,7 +23,23 @@
         line: '127.0.1.1       {{ host }}'
         state: present
 
-    - name: Set vim.basic as default editor
+    - name: Set vim as default editor if available
+      ansible.builtin.alternatives:
+        name: editor
+        path: /usr/bin/vim
+      register: vim_result
+      ignore_errors: true
+
+    - name: Set vim.basic as default editor if vim is not available
       ansible.builtin.alternatives:
         name: editor
         path: /usr/bin/vim.basic
+      register: vim_basic_result
+      when: vim_result.failed
+      ignore_errors: true
+
+    - name: Set vim.tiny as default editor if vim and vim.basic are not available
+      ansible.builtin.alternatives:
+        name: editor
+        path: /usr/bin/vim.tiny
+      when: vim_result.failed and (vim_basic_result is defined and vim_basic_result.failed)
