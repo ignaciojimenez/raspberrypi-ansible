@@ -13,7 +13,7 @@
     monitoring_name: "devpi_monitoring_script"
     # A script to monitor with args
     # Create a simple monitoring script to check if devpi is running
-    monitoring_script_src: "{{ inventory_dir }}/host_playbooks/devpi/devpi_monitor.sh"
+    monitoring_script_src: "devpi_monitor.sh"
     # monitoring_script_args: "--verbose"
     # OR A command to monitor
     # monitoring_command: "systemctl status ssh && echo 'SSH is running correctly' || (echo 'ACTIONS TAKEN: Attempting to restart ssh' && systemctl restart ssh)"
