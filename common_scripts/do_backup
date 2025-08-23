@@ -48,6 +48,14 @@ cleanup() {
 # Set up trap to clean up temporary files on exit
 trap cleanup EXIT INT TERM
 
+# Detect if running on Ubiquiti EdgeRouter (EdgeOS)
+is_edgerouter() {
+  if [ -d "/opt/vyatta" ] || [ -d "/etc/ubnt" ] || grep -qi 'edgeos\|edgerouter' /etc/issue /etc/version /etc/os-release 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
 E_NOARGS=85
 wh_regex="T[A-Z0-9]*\/B[A-Z0-9]*\/[a-zA-Z0-9]*"
 
@@ -160,6 +168,16 @@ fi
 
 if [ "$silent_mode" == "true" ]; then
   log_msg "Running in silent mode - will not send notifications"
+fi
+
+# On EdgeRouter (EdgeOS), prefer persistent GnuPG home under /config/.gnupg if not explicitly set
+if [ -z "${GNUPGHOME:-}" ] && is_edgerouter; then
+  if [ ! -d "/config/.gnupg" ]; then
+    mkdir -p "/config/.gnupg"
+    chmod 700 "/config/.gnupg"
+  fi
+  export GNUPGHOME="/config/.gnupg"
+  log_msg "Using EdgeOS GnuPG home: ${GNUPGHOME}"
 fi
 
 now=$(date +%d%m%y-%H%M)
